@@ -191,5 +191,5 @@ class DevEnv implements EnvConfig {
 
 | Email | Password | Plan |
 |-------|----------|------|
-| `somchai@example.com` | `password123` | Starter |
-| `malee@example.com` | `password123` | Pro |
+| `test@gmail.com` | `12345za` | member |
+| `admin@gmail.com` | `123456` | admin |
