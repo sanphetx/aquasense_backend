@@ -1,14 +1,18 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // BaseModel is embedded in all database models to track audit fields.
 type BaseModel struct {
-	CreatedAt time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
-	DeletedAt *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
-	CreatedBy *string    `db:"created_by" json:"created_by,omitempty"`
-	UpdatedBy *string    `db:"updated_by" json:"updated_by,omitempty"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index"          json:"-"` // [Security #12] proper soft-delete type
+	CreatedBy *string        `json:"created_by,omitempty"`
+	UpdatedBy *string        `json:"updated_by,omitempty"`
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -34,15 +38,30 @@ type RegisterRequest struct {
 }
 
 // SocialLoginRequest mirrors POST /auth/social body.
+// Flutter sends the id_token from Google Sign-In SDK or Apple Sign-In SDK.
 type SocialLoginRequest struct {
-	Provider    string `json:"provider" binding:"required"` // google | facebook
-	AccessToken string `json:"access_token" binding:"required"`
+	Provider string `json:"provider" binding:"required"` // google | apple
+	IDToken  string `json:"id_token" binding:"required"` // JWT from provider
+}
+
+// SocialUserInfo holds the verified user info extracted from a social provider token.
+type SocialUserInfo struct {
+	ProviderUserID string // unique ID from provider (Google sub / Apple sub)
+	Email          string
+	FirstName      string
+	LastName       string
 }
 
 // AuthResponse is returned on successful login/register.
 type AuthResponse struct {
-	Token string   `json:"token"`
-	User  UserJSON `json:"user"`
+	Token        string   `json:"token"`
+	User         UserJSON `json:"user"`
+	IsFirstLogin bool     `json:"is_first_login"`
+}
+
+// ForgotPasswordRequest mirrors POST /auth/forgot-password body.
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
 }
 
 // ─── User ────────────────────────────────────────────────────────────────────
@@ -103,38 +122,41 @@ type UpdateProfileRequest struct {
 
 // Farm is the database model.
 type Farm struct {
-	ID                   string `gorm:"primaryKey"`
-	UserID               string
-	Name                 string
+	ID                   string   `gorm:"primaryKey;type:varchar(36)"`
+	UserID               string   `gorm:"type:varchar(36);not null;index;constraint:OnDelete:CASCADE,OnUpdate:CASCADE"` // FK → users
+	Name                 string   `gorm:"type:varchar(255);not null"`
 	AreaSizeRai          float64
-	CropType             string
+	CropType             string   `gorm:"type:varchar(50)"`
 	YieldTonPerRai       *float64
 	AvgPriceBahtPerKg    *float64
-	DistributionChannels string `gorm:"type:json"` // stored as JSON
+	DistributionChannels string   `gorm:"type:json"`
 	SoilPh               *float64
-	SoilProblems         string `gorm:"type:json"` // stored as JSON
-	WaterSource          string
+	SoilProblems         string   `gorm:"type:json"`
+	WaterSource          string   `gorm:"type:varchar(100)"`
 	Latitude             *float64
 	Longitude            *float64
-	ActiveSensorID       *string
+	ActiveSensorID       *string  `gorm:"type:varchar(36)"` // soft-ref → sensors (no cascade, sensor may be independent)
 	BaseModel
 }
 
 // FarmJSON matches FarmModel.fromJson() in the Flutter codebase.
 type FarmJSON struct {
 	ID                   string   `json:"id"`
+	UserID               string   `json:"user_id"`              // FK → users: ระบุว่า farm นี้เป็นของ user ไหน
 	Name                 string   `json:"name"`
 	AreaSizeRai          float64  `json:"area_size_rai"`
 	CropType             string   `json:"crop_type"`
-	YieldTonPerRai       *float64 `json:"yield_ton_per_rai,omitempty"`
-	AvgPriceBahtPerKg    *float64 `json:"avg_price_baht_per_kg,omitempty"`
+	YieldTonPerRai       *float64 `json:"yield_ton_per_rai"`
+	AvgPriceBahtPerKg    *float64 `json:"avg_price_baht_per_kg"`
 	DistributionChannels []string `json:"distribution_channels"`
-	SoilPh               *float64 `json:"soil_ph,omitempty"`
+	SoilPh               *float64 `json:"soil_ph"`
 	SoilProblems         []string `json:"soil_problems"`
 	WaterSource          string   `json:"water_source"`
-	Latitude             *float64 `json:"latitude,omitempty"`
-	Longitude            *float64 `json:"longitude,omitempty"`
-	ActiveSensorID       *string  `json:"active_sensor_id,omitempty"`
+	Latitude             *float64 `json:"latitude"`
+	Longitude            *float64 `json:"longitude"`
+	ActiveSensorID       *string  `json:"active_sensor_id"` // FK → sensors: sensor ที่ Dashboard ใช้งานอยู่
+	CreatedAt            string   `json:"created_at"`
+	UpdatedAt            string   `json:"updated_at"`
 }
 
 // CreateFarmRequest mirrors POST /farms body.
@@ -151,15 +173,39 @@ type CreateFarmRequest struct {
 }
 
 // UpdateLocationRequest mirrors PUT /farms/{id}/location body.
-// Note: binding:"required" is NOT used on float64 — 0.0 is a valid coordinate.
+// [Fix F] Validate coordinate ranges: lat ∈ [-90, 90], lng ∈ [-180, 180].
 type UpdateLocationRequest struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
+	Latitude  float64 `json:"latitude"  binding:"min=-90,max=90"`
+	Longitude float64 `json:"longitude" binding:"min=-180,max=180"`
 }
 
 // LinkSensorRequest mirrors POST /farms/{id}/sensor body.
 type LinkSensorRequest struct {
 	SensorID string `json:"sensor_id" binding:"required"`
+}
+
+// ─── User Nodes (many-to-many) ───────────────────────────────────────────────
+
+// UserNode is the database model for user-sensor link (supports multiple nodes).
+// [Fix L] FK constraints: cascade delete when user or sensor is removed.
+type UserNode struct {
+	ID       string `gorm:"primaryKey;type:varchar(36)"`
+	UserID   string `gorm:"type:varchar(36);not null;index;constraint:OnDelete:CASCADE"`
+	SensorID string `gorm:"type:varchar(36);not null;constraint:OnDelete:CASCADE"`
+	IsActive bool   `gorm:"default:false"`
+	BaseModel
+}
+
+// NodeJSON is the response shape for node management endpoints.
+type NodeJSON struct {
+	ID         string   `json:"id"`
+	SensorID   string   `json:"sensor_id"`
+	SensorName string   `json:"sensor_name"`
+	Status     string   `json:"status"`
+	TDSValue   float64  `json:"tds_value"`
+	IsActive   bool     `json:"is_active"`
+	DistanceKm float64  `json:"distance_km,omitempty"`
+	LastUpdated string  `json:"last_updated"`
 }
 
 // ─── Sensor ──────────────────────────────────────────────────────────────────
@@ -247,6 +293,8 @@ type CropSuggestionJSON struct {
 
 // DashboardSummaryJSON matches DashboardSummaryModel in Flutter.
 type DashboardSummaryJSON struct {
+	FarmID          string                 `json:"farm_id"`           // for _LocationCard
+	FarmName        string                 `json:"farm_name"`         // for _LocationCard
 	ActiveSensor    SensorJSON             `json:"active_sensor"`
 	Recommendations []AiRecommendationJSON `json:"recommendations"`
 	CropSuggestions []CropSuggestionJSON   `json:"crop_suggestions"`

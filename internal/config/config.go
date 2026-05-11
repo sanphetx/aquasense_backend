@@ -11,16 +11,20 @@ import (
 
 // Config holds all application configuration loaded from environment variables.
 type Config struct {
-	ServerPort       string
-	GinMode          string
-	DBHost           string
-	DBPort           string
-	DBName           string
-	DBUser           string
-	DBPassword       string
-	JWTSecret        string
-	JWTExpireHours   int
-	CORSAllowOrigins string
+	ServerPort           string
+	GinMode              string
+	DBHost               string
+	DBPort               string
+	DBName               string
+	DBUser               string
+	DBPassword           string
+	JWTSecret            string
+	JWTExpireHours       int
+	CORSAllowOrigins     string
+	AdminDefaultPassword string // ADMIN_DEFAULT_PASSWORD — seed admin password
+	// OAuth providers
+	GoogleClientID string // GOOGLE_CLIENT_ID from Google Cloud Console
+	AppleClientID  string // APPLE_CLIENT_ID (bundle ID / service ID)
 }
 
 // Load reads .env file and environment variables, returning a Config.
@@ -31,18 +35,32 @@ func Load() *Config {
 	}
 
 	expireHours, _ := strconv.Atoi(getEnv("JWT_EXPIRE_HOURS", "24"))
+	ginMode := getEnv("GIN_MODE", "debug")
+
+	// [Security #2] JWT_SECRET must be set in production
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		if ginMode == "release" {
+			log.Fatal("[FATAL] JWT_SECRET env var must be set in production (GIN_MODE=release)")
+		}
+		jwtSecret = "insecure_dev_secret_do_not_use_in_production"
+		log.Println("[WARN] JWT_SECRET not set — using insecure default (development only)")
+	}
 
 	return &Config{
-		ServerPort:       getEnv("SERVER_PORT", "8080"),
-		GinMode:          getEnv("GIN_MODE", "debug"),
-		DBHost:           getEnv("DB_HOST", "localhost"),
-		DBPort:           getEnv("DB_PORT", "3306"),
-		DBName:           getEnv("DB_NAME", "aquasense"),
-		DBUser:           getEnv("DB_USER", "root"),
-		DBPassword:       getEnv("DB_PASSWORD", ""),
-		JWTSecret:        getEnv("JWT_SECRET", "change_me_in_production"),
-		JWTExpireHours:   expireHours,
-		CORSAllowOrigins: getEnv("CORS_ALLOWED_ORIGINS", "*"),
+		ServerPort:           getEnv("SERVER_PORT", "8080"),
+		GinMode:              ginMode,
+		DBHost:               getEnv("DB_HOST", "localhost"),
+		DBPort:               getEnv("DB_PORT", "3306"),
+		DBName:               getEnv("DB_NAME", "aquasense"),
+		DBUser:               getEnv("DB_USER", "root"),
+		DBPassword:           getEnv("DB_PASSWORD", ""),
+		JWTSecret:            jwtSecret,
+		JWTExpireHours:       expireHours,
+		CORSAllowOrigins:     getEnv("CORS_ALLOWED_ORIGINS", "*"),
+		AdminDefaultPassword: getEnv("ADMIN_DEFAULT_PASSWORD", ""),
+		GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
+		AppleClientID:        getEnv("APPLE_CLIENT_ID", ""),
 	}
 }
 

@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"sync"
 
+	"aquasense-backend/internal/logger"
 	"aquasense-backend/internal/models"
 	"aquasense-backend/internal/repository"
 	"aquasense-backend/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -34,7 +37,12 @@ func notFound(c *gin.Context, msg string) {
 }
 
 func serverError(c *gin.Context, err error) {
-	c.JSON(http.StatusInternalServerError, models.ErrorResponse{Success: false, Error: err.Error()})
+	logger.Get().Error("internal server error",
+		zap.String("path", c.Request.URL.Path),
+		zap.String("method", c.Request.Method),
+		zap.Error(err),
+	)
+	c.JSON(http.StatusInternalServerError, models.ErrorResponse{Success: false, Error: "เกิดข้อผิดพลาดภายในระบบ กรุณาลองใหม่อีกครั้ง"})
 }
 
 // ─── AuthHandler ─────────────────────────────────────────────────────────────
@@ -96,6 +104,21 @@ func (h *AuthHandler) SocialLogin(c *gin.Context) {
 	ok(c, resp)
 }
 
+// ForgotPassword handles POST /auth/forgot-password
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req models.ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+
+	if err := h.svc.ForgotPassword(req.Email); err != nil {
+		serverError(c, err)
+		return
+	}
+	ok(c, gin.H{"message": "หากอีเมลนี้มีในระบบ เราได้ส่งลิงก์รีเซ็ตรหัสผ่านให้แล้ว"})
+}
+
 // ─── FarmHandler ─────────────────────────────────────────────────────────────
 
 // FarmHandler holds all farm-related HTTP handlers.
@@ -143,6 +166,7 @@ func (h *FarmHandler) GetFarm(c *gin.Context) {
 
 // UpdateLocation handles PUT /farms/:id/location
 func (h *FarmHandler) UpdateLocation(c *gin.Context) {
+	userID := c.GetString("userID") // [Security #1] must verify ownership
 	farmID := c.Param("id")
 
 	var req models.UpdateLocationRequest
@@ -151,7 +175,11 @@ func (h *FarmHandler) UpdateLocation(c *gin.Context) {
 		return
 	}
 
-	if err := h.repo.UpdateLocation(farmID, req.Latitude, req.Longitude); err != nil {
+	if err := h.repo.UpdateLocation(userID, farmID, req.Latitude, req.Longitude); err != nil {
+		if errors.Is(err, repository.ErrFarmNotFound) { // [Fix K] sentinel error check
+			notFound(c, "ไม่พบฟาร์มหรือไม่มีสิทธิ์แก้ไข")
+			return
+		}
 		serverError(c, err)
 		return
 	}
@@ -166,6 +194,7 @@ func (h *FarmHandler) UpdateLocation(c *gin.Context) {
 
 // LinkSensor handles POST /farms/:id/sensor
 func (h *FarmHandler) LinkSensor(c *gin.Context) {
+	userID := c.GetString("userID") // [Security #1] must verify ownership
 	farmID := c.Param("id")
 
 	var req models.LinkSensorRequest
@@ -174,7 +203,11 @@ func (h *FarmHandler) LinkSensor(c *gin.Context) {
 		return
 	}
 
-	if err := h.repo.LinkSensor(farmID, req.SensorID); err != nil {
+	if err := h.repo.LinkSensor(userID, farmID, req.SensorID); err != nil {
+		if errors.Is(err, repository.ErrFarmNotFound) { // [Fix K] sentinel error check
+			notFound(c, "ไม่พบฟาร์มหรือไม่มีสิทธิ์แก้ไข")
+			return
+		}
 		serverError(c, err)
 		return
 	}
@@ -263,22 +296,26 @@ func (h *SensorHandler) GetSensorHistory(c *gin.Context) {
 	ok(c, records)
 }
 
-// GetDashboardSummary handles GET /dashboard/summary
-func (h *SensorHandler) GetDashboardSummary(c *gin.Context) {
-	userID := c.GetString("userID")
-
+// buildDashboardSummary is a shared helper that builds a DashboardSummaryJSON
+// for any given userID. Used by both user and admin dashboard endpoints.
+func (h *SensorHandler) buildDashboardSummary(c *gin.Context, userID string) {
 	farm, err := h.farmRepo.GetFarmByUserID(userID)
 	if err != nil {
 		serverError(c, err)
 		return
 	}
 
-	var activeSensorID string
-	if farm != nil && farm.ActiveSensorID != nil {
-		activeSensorID = *farm.ActiveSensorID
-	} else {
-		activeSensorID = "s001" // default seed sensor
+	// [Fix C] Remove hardcoded "s001" fallback — return 404 if no farm/sensor configured.
+	// User must create a farm and link a sensor before using the dashboard.
+	if farm == nil {
+		notFound(c, "ยังไม่มีแปลงเกษตร กรุณาสร้างฟาร์มก่อนใช้งาน Dashboard")
+		return
 	}
+	if farm.ActiveSensorID == nil {
+		notFound(c, "ยังไม่มี Sensor ที่เชื่อมต่อ กรุณาเพิ่ม Node และเชื่อมต่อ Sensor ก่อน")
+		return
+	}
+	activeSensorID := *farm.ActiveSensorID
 
 	var sensor *models.SensorJSON
 	var history []models.WaterRecordJSON
@@ -291,75 +328,9 @@ func (h *SensorHandler) GetDashboardSummary(c *gin.Context) {
 	go func() {
 		defer wg.Done()
 		sensor, sensorErr = h.sensorRepo.GetSensorLatest(activeSensorID)
-		if sensorErr == nil && sensor == nil && activeSensorID != "s001" {
-			// Fallback: try the first seed sensor
-			sensor, sensorErr = h.sensorRepo.GetSensorLatest("s001")
-		}
 	}()
 
 	// 2. Fetch history concurrently
-	go func() {
-		defer wg.Done()
-		history, histErr = h.sensorRepo.GetSensorHistory(activeSensorID, "7d")
-	}()
-
-	wg.Wait() // Wait for both queries to finish
-
-	if sensorErr != nil {
-		serverError(c, sensorErr)
-		return
-	}
-	if histErr != nil {
-		serverError(c, histErr)
-		return
-	}
-	if sensor == nil {
-		notFound(c, "ไม่พบข้อมูล Sensor สำหรับ Dashboard")
-		return
-	}
-
-	tds := sensor.TDSValue
-	summary := models.DashboardSummaryJSON{
-		ActiveSensor:    *sensor,
-		Recommendations: h.aiSvc.GetRecommendations(),
-		CropSuggestions: h.aiSvc.GetCropSuggestions(tds),
-		TrendHistory:    history,
-	}
-	ok(c, summary)
-}
-
-// GetUserDashboardSummary handles GET /admin/users/:user_id/summary (Admin only)
-func (h *SensorHandler) GetUserDashboardSummary(c *gin.Context) {
-	targetUserID := c.Param("user_id")
-
-	farm, err := h.farmRepo.GetFarmByUserID(targetUserID)
-	if err != nil {
-		serverError(c, err)
-		return
-	}
-
-	var activeSensorID string
-	if farm != nil && farm.ActiveSensorID != nil {
-		activeSensorID = *farm.ActiveSensorID
-	} else {
-		activeSensorID = "s001" // default seed sensor
-	}
-
-	var sensor *models.SensorJSON
-	var history []models.WaterRecordJSON
-	var sensorErr, histErr error
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		sensor, sensorErr = h.sensorRepo.GetSensorLatest(activeSensorID)
-		if sensorErr == nil && sensor == nil && activeSensorID != "s001" {
-			sensor, sensorErr = h.sensorRepo.GetSensorLatest("s001")
-		}
-	}()
-
 	go func() {
 		defer wg.Done()
 		history, histErr = h.sensorRepo.GetSensorHistory(activeSensorID, "7d")
@@ -382,6 +353,8 @@ func (h *SensorHandler) GetUserDashboardSummary(c *gin.Context) {
 
 	tds := sensor.TDSValue
 	summary := models.DashboardSummaryJSON{
+		FarmID:          farm.ID,   // Blocker #3: Flutter _LocationCard needs farm info
+		FarmName:        farm.Name, // Blocker #3
 		ActiveSensor:    *sensor,
 		Recommendations: h.aiSvc.GetRecommendations(),
 		CropSuggestions: h.aiSvc.GetCropSuggestions(tds),
@@ -390,20 +363,37 @@ func (h *SensorHandler) GetUserDashboardSummary(c *gin.Context) {
 	ok(c, summary)
 }
 
+// GetDashboardSummary handles GET /dashboard/summary
+func (h *SensorHandler) GetDashboardSummary(c *gin.Context) {
+	userID := c.GetString("userID")
+	h.buildDashboardSummary(c, userID)
+}
+
+// GetUserDashboardSummary handles GET /admin/users/:user_id/summary (Admin only)
+func (h *SensorHandler) GetUserDashboardSummary(c *gin.Context) {
+	targetUserID := c.Param("user_id")
+	h.buildDashboardSummary(c, targetUserID)
+}
+
 // GetSoilMoistureHistory handles GET /analytics/soil-moisture?sensor_id=&period=
-// sensor_id is optional — falls back to the user's active farm sensor, then seed sensor s001.
+// Resolves sensor from user's active farm — returns 404 if no sensor linked.
 func (h *SensorHandler) GetSoilMoistureHistory(c *gin.Context) {
 	userID := c.GetString("userID")
 	period := c.DefaultQuery("period", "7d")
 
-	// Resolve sensor_id
+	// Resolve sensor_id: explicit query param → farm's active sensor → 404
 	sensorID := c.Query("sensor_id")
 	if sensorID == "" {
-		if farm, err := h.farmRepo.GetFarmByUserID(userID); err == nil && farm != nil && farm.ActiveSensorID != nil {
-			sensorID = *farm.ActiveSensorID
-		} else {
-			sensorID = "s001"
+		farm, err := h.farmRepo.GetFarmByUserID(userID)
+		if err != nil {
+			serverError(c, err)
+			return
 		}
+		if farm == nil || farm.ActiveSensorID == nil {
+			notFound(c, "ยังไม่มี Sensor ที่เชื่อมต่อ กรุณาเพิ่ม Node ก่อน")
+			return
+		}
+		sensorID = *farm.ActiveSensorID
 	}
 
 	records, err := h.sensorRepo.GetSensorHistory(sensorID, period)
@@ -554,14 +544,98 @@ func (h *AiHandler) GetAdvisoryHistory(c *gin.Context) {
 	ok(c, h.svc.GetAdvisoryHistory())
 }
 
-// GetCropSuggestions handles GET /ai/crop-suggestions?tds=&soil_ph=
+// GetCropSuggestions handles GET /ai/crop-suggestions?tds=
 func (h *AiHandler) GetCropSuggestions(c *gin.Context) {
 	type Query struct {
-		TDS    float64  `form:"tds"`
-		SoilPH *float64 `form:"soil_ph"`
+		TDS float64 `form:"tds"`
 	}
 	var q Query
 	_ = c.ShouldBindQuery(&q)
 
 	ok(c, h.svc.GetCropSuggestions(q.TDS))
+}
+
+// ─── NodeHandler ───────────────────────────────────────────────────────────
+
+// NodeHandler holds all sensor node management HTTP handlers.
+type NodeHandler struct {
+	repo *repository.NodeRepository
+}
+
+func NewNodeHandler(repo *repository.NodeRepository) *NodeHandler {
+	return &NodeHandler{repo: repo}
+}
+
+// GetNodes handles GET /nodes
+func (h *NodeHandler) GetNodes(c *gin.Context) {
+	userID := c.GetString("userID")
+	nodes, err := h.repo.GetUserNodes(userID)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	if nodes == nil {
+		nodes = []models.NodeJSON{}
+	}
+	ok(c, nodes)
+}
+
+// AddNode handles POST /nodes
+// [Fix K] Use errors.Is to distinguish user errors from server errors
+func (h *NodeHandler) AddNode(c *gin.Context) {
+	userID := c.GetString("userID")
+
+	var req models.LinkSensorRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+
+	node, err := h.repo.AddNode(userID, req.SensorID)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrSensorNotFound):
+			notFound(c, "ไม่พบ Sensor ID ที่ระบุ")
+		case errors.Is(err, repository.ErrNodeDuplicate):
+			badRequest(c, "เชื่อมต่อ Sensor นี้ไว้อยู่แล้ว")
+		case errors.Is(err, repository.ErrNodeCapacity):
+			badRequest(c, "เชื่อมต่อได้สูงสุด 5 nodes")
+		default:
+			serverError(c, err)
+		}
+		return
+	}
+	created(c, node)
+}
+
+// SetActiveNode handles PUT /nodes/:id/active
+func (h *NodeHandler) SetActiveNode(c *gin.Context) {
+	userID := c.GetString("userID")
+	nodeID := c.Param("id")
+
+	if err := h.repo.SetActiveNode(userID, nodeID); err != nil {
+		if errors.Is(err, repository.ErrNodeNotFound) {
+			notFound(c, "ไม่พบ Node ที่ระบุ")
+			return
+		}
+		serverError(c, err)
+		return
+	}
+	ok(c, gin.H{"message": "ตั้งเป็น Active Node สำเร็จ"})
+}
+
+// RemoveNode handles DELETE /nodes/:id
+func (h *NodeHandler) RemoveNode(c *gin.Context) {
+	userID := c.GetString("userID")
+	nodeID := c.Param("id")
+
+	if err := h.repo.RemoveNode(userID, nodeID); err != nil {
+		if errors.Is(err, repository.ErrNodeNotFound) {
+			notFound(c, "ไม่พบ Node ที่ระบุ")
+			return
+		}
+		serverError(c, err)
+		return
+	}
+	ok(c, gin.H{"message": "ยกเลิกการเชื่อมต่อสำเร็จ"})
 }

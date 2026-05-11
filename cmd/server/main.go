@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,11 +11,13 @@ import (
 	"aquasense-backend/internal/config"
 	"aquasense-backend/internal/database"
 	"aquasense-backend/internal/handlers"
+	"aquasense-backend/internal/logger"
 	"aquasense-backend/internal/repository"
 	"aquasense-backend/internal/router"
 	"aquasense-backend/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	_ "aquasense-backend/docs" // Import generated swagger docs
 )
@@ -35,14 +36,20 @@ import (
 // @in header
 // @name Authorization
 func main() {
+	// ── Logger ───────────────────────────────────────────────────────────────
+	logger.InitLogger()
+	log := logger.Get()
+	defer log.Sync() //nolint:errcheck
+
 	// ── Config ────────────────────────────────────────────────────────────────
 	cfg := config.Load()
 	gin.SetMode(cfg.GinMode)
 
 	// ── Database ──────────────────────────────────────────────────────────────
-	db, err := database.Connect(cfg.DSN())
+	// [Security #9] AutoMigrate only in dev; [Security #8] admin password from config
+	db, err := database.Connect(cfg.DSN(), cfg.GinMode != "release", cfg.AdminDefaultPassword)
 	if err != nil {
-		log.Fatalf("[main] failed to connect to database: %v", err)
+		log.Fatal("failed to connect to database", zap.Error(err))
 	}
 	if sqlDB, err := db.DB(); err == nil {
 		defer sqlDB.Close()
@@ -53,9 +60,10 @@ func main() {
 	farmRepo := repository.NewFarmRepository(db)
 	sensorRepo := repository.NewSensorRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
+	nodeRepo := repository.NewNodeRepository(db)
 
 	// ── Services ─────────────────────────────────────────────────────────────
-	authSvc := service.NewAuthService(authRepo, cfg.JWTSecret, cfg.JWTExpireHours)
+	authSvc := service.NewAuthService(authRepo, cfg.JWTSecret, cfg.JWTExpireHours, cfg.GoogleClientID, cfg.AppleClientID)
 	aiSvc := service.NewAiService()
 	subSvc := service.NewSubscriptionService()
 
@@ -65,9 +73,10 @@ func main() {
 	sensorHandler := handlers.NewSensorHandler(sensorRepo, farmRepo, aiSvc)
 	accountHandler := handlers.NewAccountHandler(authRepo, notifRepo, subSvc)
 	aiHandler := handlers.NewAiHandler(aiSvc)
+	nodeHandler := handlers.NewNodeHandler(nodeRepo)
 
 	// ── Router ────────────────────────────────────────────────────────────────
-	r := router.Setup(cfg, authHandler, farmHandler, sensorHandler, accountHandler, aiHandler)
+	r := router.Setup(cfg, authHandler, farmHandler, sensorHandler, accountHandler, aiHandler, nodeHandler)
 
 	// ── Graceful Shutdown ─────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -77,27 +86,28 @@ func main() {
 
 	// Run the server in a goroutine so it doesn't block
 	go func() {
-		log.Printf("[main] AquaSense backend listening on %s (mode: %s)\n", srv.Addr, cfg.GinMode)
+		log.Info("AquaSense backend started",
+			zap.String("addr", srv.Addr),
+			zap.String("mode", cfg.GinMode),
+		)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+			log.Fatal("server listen failed", zap.Error(err))
 		}
 	}()
 
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
-	// kill (no param) default send syscall.SIGTERM
-	// kill -2 is syscall.SIGINT
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server gracefully...")
+	log.Info("Shutting down server gracefully...")
 
 	// The context is used to inform the server it has 5 seconds to finish existing requests
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown: ", err)
+		log.Fatal("server forced to shutdown", zap.Error(err))
 	}
 
-	log.Println("Server exiting")
+	log.Info("Server exited")
 }

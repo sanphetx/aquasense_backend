@@ -16,13 +16,21 @@ import (
 
 // AuthService encapsulates auth business logic.
 type AuthService struct {
-	repo      *repository.AuthRepository
-	jwtSecret string
-	jwtExpire int // hours
+	repo           *repository.AuthRepository
+	jwtSecret      string
+	jwtExpire      int // hours
+	googleClientID string
+	appleClientID  string
 }
 
-func NewAuthService(repo *repository.AuthRepository, secret string, expireHours int) *AuthService {
-	return &AuthService{repo: repo, jwtSecret: secret, jwtExpire: expireHours}
+func NewAuthService(repo *repository.AuthRepository, secret string, expireHours int, googleClientID, appleClientID string) *AuthService {
+	return &AuthService{
+		repo:           repo,
+		jwtSecret:      secret,
+		jwtExpire:      expireHours,
+		googleClientID: googleClientID,
+		appleClientID:  appleClientID,
+	}
 }
 
 // Login verifies credentials and returns an AuthResponse.
@@ -42,7 +50,11 @@ func (s *AuthService) Login(req models.LoginRequest) (*models.AuthResponse, erro
 		return nil, err
 	}
 
-	return &models.AuthResponse{Token: token, User: user.ToJSON()}, nil
+	return &models.AuthResponse{
+		Token:        token,
+		User:         user.ToJSON(),
+		IsFirstLogin: !s.repo.HasFarm(user.ID),
+	}, nil
 }
 
 // Register creates a new user and returns an AuthResponse.
@@ -79,26 +91,64 @@ func (s *AuthService) Register(req models.RegisterRequest) (*models.AuthResponse
 		return nil, err
 	}
 
-	return &models.AuthResponse{Token: token, User: user.ToJSON()}, nil
+	return &models.AuthResponse{
+		Token:        token,
+		User:         user.ToJSON(),
+		IsFirstLogin: true, // newly registered user always needs setup
+	}, nil
 }
 
-// SocialLogin creates or finds a user from a social provider.
-// In a real implementation this would verify the access_token with the provider.
-func (s *AuthService) SocialLogin(req models.SocialLoginRequest) (*models.AuthResponse, error) {
-	// Stub: generate a deterministic fake email so multiple calls are idempotent
-	email := fmt.Sprintf("social.%s.%s@aquasense.local", req.Provider, "stub")
-
+// ForgotPassword initiates a password reset flow.
+// In production, this would send an email with a reset link/OTP.
+func (s *AuthService) ForgotPassword(email string) error {
+	email = strings.ToLower(email)
 	user, err := s.repo.FindByEmail(email)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		// Return nil even if not found to prevent email enumeration
+		return nil
+	}
+	// TODO: Send reset email via SMTP or third-party service
+	return nil
+}
+
+// SocialLogin verifies a provider id_token and returns an AuthResponse.
+// Supports: google, apple
+func (s *AuthService) SocialLogin(req models.SocialLoginRequest) (*models.AuthResponse, error) {
+	var info *models.SocialUserInfo
+	var err error
+
+	switch strings.ToLower(req.Provider) {
+	case "google":
+		info, err = VerifyGoogleToken(req.IDToken, s.googleClientID)
+		if err != nil {
+			return nil, fmt.Errorf("Google login failed: %w", err)
+		}
+	case "apple":
+		info, err = VerifyAppleToken(req.IDToken, s.appleClientID)
+		if err != nil {
+			return nil, fmt.Errorf("Apple login failed: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported provider: %q (supported: google, apple)", req.Provider)
+	}
+
+	// Find existing user or create a new one
+	user, err := s.repo.FindByEmail(info.Email)
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
-		// Auto-create social user
+		firstName := info.FirstName
+		if firstName == "" {
+			firstName = req.Provider // fallback: "google" or "apple"
+		}
 		fakeReq := models.RegisterRequest{
-			FirstName: "Social",
-			LastName:  req.Provider,
-			Email:     email,
-			Phone:     "",
+			FirstName: firstName,
+			LastName:  info.LastName,
+			Email:     info.Email,
 			BirthDate: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC),
 			Password:  uuid.NewString(), // random, unusable password
 		}
@@ -112,7 +162,11 @@ func (s *AuthService) SocialLogin(req models.SocialLoginRequest) (*models.AuthRe
 	if err != nil {
 		return nil, err
 	}
-	return &models.AuthResponse{Token: token, User: user.ToJSON()}, nil
+	return &models.AuthResponse{
+		Token:        token,
+		User:         user.ToJSON(),
+		IsFirstLogin: !s.repo.HasFarm(user.ID),
+	}, nil
 }
 
 func (s *AuthService) generateToken(userID, email, role string) (string, error) {

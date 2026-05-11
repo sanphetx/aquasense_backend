@@ -1,6 +1,7 @@
 package router
 
 import (
+	"strings"
 	"time"
 
 	"aquasense-backend/internal/config"
@@ -21,21 +22,26 @@ func Setup(
 	sensorHandler *handlers.SensorHandler,
 	accountHandler *handlers.AccountHandler,
 	aiHandler *handlers.AiHandler,
+	nodeHandler *handlers.NodeHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
-	// ── CORS Middleware ──────────────────────────────────────────────────────
+	// [Security #6] CORS: read origins from config, disable credentials for mobile app
+	// AllowCredentials must NOT be true when AllowOrigins contains "*"
+	allowedOrigins := strings.Split(cfg.CORSAllowOrigins, ",")
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"}, // Adjust this in production
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowOrigins:     allowedOrigins,
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
+		AllowCredentials: false, // Flutter mobile uses Bearer token, not cookies
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Swagger documentation route
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// [Security #13] Swagger only in development mode
+	if cfg.GinMode != "release" {
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -50,6 +56,7 @@ func Setup(
 		auth.POST("/login", authHandler.Login)
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/social", authHandler.SocialLogin)
+		auth.POST("/forgot-password", authHandler.ForgotPassword)
 	}
 
 	// ── Protected routes (JWT required) ──────────────────────────────────────
@@ -91,6 +98,12 @@ func Setup(
 		// Subscriptions
 		protected.GET("/subscriptions/plans", accountHandler.GetSubscriptionPlans)
 		protected.POST("/subscriptions/subscribe", accountHandler.Subscribe)
+
+		// Node Management
+		protected.GET("/nodes", nodeHandler.GetNodes)
+		protected.POST("/nodes", nodeHandler.AddNode)
+		protected.PUT("/nodes/:id/active", nodeHandler.SetActiveNode)
+		protected.DELETE("/nodes/:id", nodeHandler.RemoveNode)
 	}
 
 	// ── Admin routes (JWT + Admin Role required) ─────────────────────────────

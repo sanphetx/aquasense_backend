@@ -2,15 +2,27 @@ package repository
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"aquasense-backend/internal/logger"
 	"aquasense-backend/internal/models"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+)
+
+// [Fix K] Sentinel errors — use errors.Is() in handlers instead of string comparison.
+var (
+	ErrFarmNotFound   = errors.New("farm not found or access denied")
+	ErrNodeNotFound   = errors.New("node not found or access denied")
+	ErrSensorNotFound = errors.New("sensor not found")
+	ErrNodeDuplicate  = errors.New("sensor นี้เชื่อมต่ออยู่แล้ว")
+	ErrNodeCapacity   = errors.New("เชื่อมต่อได้สูงสุด 5 nodes")
 )
 
 // ─── AuthRepository ──────────────────────────────────────────────────────────
@@ -85,6 +97,13 @@ func (r *AuthRepository) UpdateSubscription(userID, planID string) error {
 	return r.db.Model(&models.User{}).Where("id = ?", userID).Update("subscription_plan", planID).Error
 }
 
+// HasFarm checks if a user has at least one farm (used for isFirstLogin detection).
+func (r *AuthRepository) HasFarm(userID string) bool {
+	var count int64
+	r.db.Model(&models.Farm{}).Where("user_id = ?", userID).Count(&count)
+	return count > 0
+}
+
 // ─── FarmRepository ──────────────────────────────────────────────────────────
 
 type FarmRepository struct {
@@ -96,8 +115,15 @@ func NewFarmRepository(db *gorm.DB) *FarmRepository {
 }
 
 func (r *FarmRepository) CreateFarm(userID string, req models.CreateFarmRequest) (*models.FarmJSON, error) {
-	distJSON, _ := json.Marshal(req.DistributionChannels)
-	probJSON, _ := json.Marshal(req.SoilProblems)
+	// [Fix I] handle json.Marshal errors
+	distJSON, err := json.Marshal(req.DistributionChannels)
+	if err != nil {
+		return nil, fmt.Errorf("marshal distribution_channels: %w", err)
+	}
+	probJSON, err := json.Marshal(req.SoilProblems)
+	if err != nil {
+		return nil, fmt.Errorf("marshal soil_problems: %w", err)
+	}
 
 	farm := &models.Farm{
 		ID:                   uuid.NewString(),
@@ -119,6 +145,7 @@ func (r *FarmRepository) CreateFarm(userID string, req models.CreateFarmRequest)
 
 	return &models.FarmJSON{
 		ID:                   farm.ID,
+		UserID:               farm.UserID, // ระบุเจ้าของ farm
 		Name:                 farm.Name,
 		AreaSizeRai:          farm.AreaSizeRai,
 		CropType:             farm.CropType,
@@ -128,6 +155,8 @@ func (r *FarmRepository) CreateFarm(userID string, req models.CreateFarmRequest)
 		SoilPh:               farm.SoilPh,
 		SoilProblems:         req.SoilProblems,
 		WaterSource:          farm.WaterSource,
+		CreatedAt:            farm.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:            farm.UpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 
@@ -140,13 +169,21 @@ func (r *FarmRepository) GetFarmByUserID(userID string) (*models.FarmJSON, error
 		return nil, err
 	}
 
+	// [Fix H] log warning if JSON fields are malformed instead of silently ignoring
 	var dist []string
-	json.Unmarshal([]byte(farm.DistributionChannels), &dist)
+	if err := json.Unmarshal([]byte(farm.DistributionChannels), &dist); err != nil {
+		logger.Get().Warn("malformed distribution_channels JSON", zap.String("farm_id", farm.ID))
+		dist = []string{}
+	}
 	var prob []string
-	json.Unmarshal([]byte(farm.SoilProblems), &prob)
+	if err := json.Unmarshal([]byte(farm.SoilProblems), &prob); err != nil {
+		logger.Get().Warn("malformed soil_problems JSON", zap.String("farm_id", farm.ID))
+		prob = []string{}
+	}
 
 	return &models.FarmJSON{
 		ID:                   farm.ID,
+		UserID:               farm.UserID, // FK → users: ระบุเจ้าของ farm
 		Name:                 farm.Name,
 		AreaSizeRai:          farm.AreaSizeRai,
 		CropType:             farm.CropType,
@@ -158,21 +195,39 @@ func (r *FarmRepository) GetFarmByUserID(userID string) (*models.FarmJSON, error
 		WaterSource:          farm.WaterSource,
 		Latitude:             farm.Latitude,
 		Longitude:            farm.Longitude,
-		ActiveSensorID:       farm.ActiveSensorID,
+		ActiveSensorID:       farm.ActiveSensorID, // FK → sensors: sensor ที่ Dashboard ใช้งานอยู่
+		CreatedAt:            farm.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:            farm.UpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 
-func (r *FarmRepository) UpdateLocation(farmID string, lat, lng float64) error {
+// [Security #1] UpdateLocation verifies farm ownership before updating.
+func (r *FarmRepository) UpdateLocation(userID, farmID string, lat, lng float64) error {
 	lat = float64(int(lat*100)) / 100
 	lng = float64(int(lng*100)) / 100
-	return r.db.Model(&models.Farm{}).Where("id = ?", farmID).Updates(map[string]interface{}{
+	result := r.db.Model(&models.Farm{}).Where("id = ? AND user_id = ?", farmID, userID).Updates(map[string]interface{}{
 		"latitude":  lat,
 		"longitude": lng,
-	}).Error
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrFarmNotFound // [Fix K] sentinel error
+	}
+	return nil
 }
 
-func (r *FarmRepository) LinkSensor(farmID, sensorID string) error {
-	return r.db.Model(&models.Farm{}).Where("id = ?", farmID).Update("active_sensor_id", sensorID).Error
+// [Security #1] LinkSensor verifies farm ownership before linking.
+func (r *FarmRepository) LinkSensor(userID, farmID, sensorID string) error {
+	result := r.db.Model(&models.Farm{}).Where("id = ? AND user_id = ?", farmID, userID).Update("active_sensor_id", sensorID)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrFarmNotFound // [Fix K] sentinel error
+	}
+	return nil
 }
 
 func (r *FarmRepository) GetFarmByID(farmID string) (*models.FarmJSON, error) {
@@ -184,13 +239,21 @@ func (r *FarmRepository) GetFarmByID(farmID string) (*models.FarmJSON, error) {
 		return nil, err
 	}
 
+	// [Fix H] log warning if JSON fields are malformed
 	var dist []string
-	json.Unmarshal([]byte(farm.DistributionChannels), &dist)
+	if err := json.Unmarshal([]byte(farm.DistributionChannels), &dist); err != nil {
+		logger.Get().Warn("malformed distribution_channels JSON", zap.String("farm_id", farm.ID))
+		dist = []string{}
+	}
 	var prob []string
-	json.Unmarshal([]byte(farm.SoilProblems), &prob)
+	if err := json.Unmarshal([]byte(farm.SoilProblems), &prob); err != nil {
+		logger.Get().Warn("malformed soil_problems JSON", zap.String("farm_id", farm.ID))
+		prob = []string{}
+	}
 
 	return &models.FarmJSON{
 		ID:                   farm.ID,
+		UserID:               farm.UserID,
 		Name:                 farm.Name,
 		AreaSizeRai:          farm.AreaSizeRai,
 		CropType:             farm.CropType,
@@ -203,6 +266,8 @@ func (r *FarmRepository) GetFarmByID(farmID string) (*models.FarmJSON, error) {
 		Latitude:             farm.Latitude,
 		Longitude:            farm.Longitude,
 		ActiveSensorID:       farm.ActiveSensorID,
+		CreatedAt:            farm.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:            farm.UpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 
@@ -217,12 +282,26 @@ func NewSensorRepository(db *gorm.DB) *SensorRepository {
 }
 
 func (r *SensorRepository) GetNearbySensors(lat, lng float64) ([]models.SensorJSON, error) {
+	// [Blocker #2] SELECT includes distance_km — GORM Raw Scan maps it to SensorJSON.DistanceKm
+	// last_updated is formatted as ISO 8601 string to match SensorJSON.LastUpdated
 	var sensors []models.SensorJSON
 	err := r.db.Raw(`
-		SELECT id, name, latitude, longitude, status, tds_value, temperature, ph, updated_at as last_updated,
-		(6371 * ACOS(COS(RADIANS(?)) * COS(RADIANS(latitude)) * COS(RADIANS(longitude) - RADIANS(?)) + SIN(RADIANS(?)) * SIN(RADIANS(latitude)))) AS distance_km
-		FROM sensors ORDER BY distance_km ASC
+		SELECT
+			id, name, latitude, longitude, status, tds_value, temperature, ph,
+			DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%sZ') AS last_updated,
+			ROUND(
+				6371 * ACOS(
+					COS(RADIANS(?)) * COS(RADIANS(latitude)) * COS(RADIANS(longitude) - RADIANS(?))
+					+ SIN(RADIANS(?)) * SIN(RADIANS(latitude))
+				), 2
+			) AS distance_km
+		FROM sensors
+		ORDER BY distance_km ASC
+		LIMIT 50
 	`, lat, lng, lat).Scan(&sensors).Error
+	if sensors == nil {
+		sensors = []models.SensorJSON{}
+	}
 	return sensors, err
 }
 
@@ -327,4 +406,140 @@ func (r *NotificationRepository) SaveSettings(userID string, s models.Notificati
 		LineEnabled:      s.LineEnabled,
 		DailySummaryTime: s.DailySummaryTime,
 	}).Error
+}
+
+// ─── NodeRepository ──────────────────────────────────────────────────────────
+
+type NodeRepository struct {
+	db *gorm.DB
+}
+
+func NewNodeRepository(db *gorm.DB) *NodeRepository {
+	return &NodeRepository{db: db}
+}
+
+// GetUserNodes returns all sensor nodes linked to a user with sensor details.
+func (r *NodeRepository) GetUserNodes(userID string) ([]models.NodeJSON, error) {
+	var nodes []models.UserNode
+	if err := r.db.Where("user_id = ?", userID).Order("created_at ASC").Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+
+	var result []models.NodeJSON
+	for _, n := range nodes {
+		var sensor models.Sensor
+		if err := r.db.Where("id = ?", n.SensorID).First(&sensor).Error; err != nil {
+			continue // skip if sensor not found
+		}
+		result = append(result, models.NodeJSON{
+			ID:          n.ID,
+			SensorID:    sensor.ID,
+			SensorName:  sensor.Name,
+			Status:      sensor.Status,
+			TDSValue:    sensor.TDSValue,
+			IsActive:    n.IsActive,
+			LastUpdated: sensor.UpdatedAt.Format(time.RFC3339),
+		})
+	}
+	return result, nil
+}
+
+// AddNode links a sensor to a user. If it's the first node, set it as active.
+// [Fix D] Entire operation wrapped in a DB transaction to prevent race conditions.
+// [Fix G] Validates sensor exists before linking.
+func (r *NodeRepository) AddNode(userID, sensorID string) (*models.NodeJSON, error) {
+	var result *models.NodeJSON
+
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// [Fix G] Validate sensor exists before linking
+		var sensor models.Sensor
+		if err := tx.Where("id = ?", sensorID).First(&sensor).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return ErrSensorNotFound
+			}
+			return err
+		}
+
+		// Check if already linked
+		var existing models.UserNode
+		if err := tx.Where("user_id = ? AND sensor_id = ?", userID, sensorID).First(&existing).Error; err == nil {
+			return ErrNodeDuplicate // [Fix K] sentinel error
+		}
+
+		// Check capacity (inside transaction to prevent race condition)
+		var count int64
+		tx.Model(&models.UserNode{}).Where("user_id = ?", userID).Count(&count)
+		if count >= 5 {
+			return ErrNodeCapacity // [Fix K] sentinel error
+		}
+
+		isFirst := count == 0
+		node := models.UserNode{
+			ID:       uuid.NewString(),
+			UserID:   userID,
+			SensorID: sensorID,
+			IsActive: isFirst,
+		}
+		if err := tx.Create(&node).Error; err != nil {
+			return err
+		}
+
+		// [Fix M] If first node, sync farms.active_sensor_id automatically
+		if isFirst {
+			tx.Model(&models.Farm{}).Where("user_id = ?", userID).Update("active_sensor_id", sensorID)
+		}
+
+		result = &models.NodeJSON{
+			ID:          node.ID,
+			SensorID:    sensor.ID,
+			SensorName:  sensor.Name,
+			Status:      sensor.Status,
+			TDSValue:    sensor.TDSValue,
+			IsActive:    node.IsActive,
+			LastUpdated: sensor.UpdatedAt.Format(time.RFC3339),
+		}
+		return nil
+	})
+	return result, err
+}
+
+// SetActiveNode sets a specific node as active and deactivates others.
+// [Fix M] Also syncs farms.active_sensor_id to match the active node's sensor.
+func (r *NodeRepository) SetActiveNode(userID, nodeID string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Deactivate all nodes for this user
+		if err := tx.Model(&models.UserNode{}).Where("user_id = ?", userID).Update("is_active", false).Error; err != nil {
+			return err
+		}
+
+		// Activate the selected node
+		result := tx.Model(&models.UserNode{}).Where("id = ? AND user_id = ?", nodeID, userID).Update("is_active", true)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrNodeNotFound // [Fix K] sentinel error
+		}
+
+		// [Fix M] Get the activated node's sensorID and sync to farms.active_sensor_id
+		var node models.UserNode
+		if err := tx.Select("sensor_id").Where("id = ?", nodeID).First(&node).Error; err == nil {
+			// Best-effort sync — don't fail if user has no farm yet
+			tx.Model(&models.Farm{}).Where("user_id = ?", userID).Update("active_sensor_id", node.SensorID)
+		}
+
+		return nil
+	})
+}
+
+// RemoveNode unlinks a sensor from a user.
+func (r *NodeRepository) RemoveNode(userID, nodeID string) error {
+	result := r.db.Where("id = ? AND user_id = ?", nodeID, userID).Delete(&models.UserNode{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNodeNotFound // [Fix K] sentinel error
+	}
+	return nil
 }
