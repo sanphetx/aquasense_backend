@@ -204,11 +204,14 @@ func (h *FarmHandler) LinkSensor(c *gin.Context) {
 	}
 
 	if err := h.repo.LinkSensor(userID, farmID, req.SensorID); err != nil {
-		if errors.Is(err, repository.ErrFarmNotFound) { // [Fix K] sentinel error check
+		switch {
+		case errors.Is(err, repository.ErrFarmNotFound):
 			notFound(c, "ไม่พบฟาร์มหรือไม่มีสิทธิ์แก้ไข")
-			return
+		case errors.Is(err, repository.ErrSensorNotFound):
+			notFound(c, "ไม่พบ Sensor ID ที่ระบุ")
+		default:
+			serverError(c, err)
 		}
-		serverError(c, err)
 		return
 	}
 	ok(c, gin.H{"message": "เชื่อมต่อ Sensor สำเร็จ"})

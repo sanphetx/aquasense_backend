@@ -47,12 +47,15 @@ func Connect(dsn string, runMigrate bool, adminPassword string) (*gorm.DB, error
 	// [Security #9] AutoMigrate only in development — use migration tool in production
 	if runMigrate {
 		err = db.AutoMigrate(
+			&models.SubscriptionPlan{},   // must be before User (FK dependency)
+			&models.Sensor{},             // must be before Farm, UserNode, WaterRecord
 			&models.User{},
 			&models.Farm{},
-			&models.Sensor{},
 			&models.WaterRecord{},
 			&models.NotificationSettings{},
 			&models.UserNode{},
+			&models.AiRecommendation{},
+			&models.CropSuggestion{},
 		)
 		if err != nil {
 			logger.Get().Warn("AutoMigrate warning", zap.Error(err))
@@ -60,6 +63,8 @@ func Connect(dsn string, runMigrate bool, adminPassword string) (*gorm.DB, error
 		logger.Get().Info("AutoMigrate completed")
 	}
 
+	seedPlans(db)     // must run before seedAdmin (FK: users.subscription_plan → subscription_plans.id)
+	seedAiData(db)
 	seedAdmin(db, adminPassword)
 
 	return db, nil
@@ -114,5 +119,102 @@ func seedAdmin(db *gorm.DB, adminPassword string) {
 		logger.Get().Error("Failed to seed admin user", zap.Error(err))
 	} else {
 		logger.Get().Info("Default admin user seeded", zap.String("email", "admin@gmail.com"))
+	}
+}
+
+// seedPlans creates default subscription plans if they don't exist.
+func seedPlans(db *gorm.DB) {
+	var count int64
+	db.Model(&models.SubscriptionPlan{}).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	plans := []models.SubscriptionPlan{
+		{
+			ID: "free", Name: "Free", Price: "฿0", Period: "",
+			Features:    `["ดูข้อมูลตัวอย่าง (Demo)","AI พื้นฐาน","ไม่มีการแจ้งเตือน"]`,
+			Recommended: false, SortOrder: 0,
+		},
+		{
+			ID: "starter", Name: "Starter", Price: "฿59", Period: "/ฤดูกาล",
+			Features:    `["เชื่อมต่อ 1 Sensor","แจ้งเตือนผ่านแอป","บันทึกสถิติรายสัปดาห์","AI ระดับพื้นฐาน"]`,
+			Recommended: true, SortOrder: 1,
+		},
+		{
+			ID: "pro", Name: "Pro", Price: "฿199", Period: "/ปี",
+			Features:    `["เชื่อมต่อ 5 Sensors","AI Level 3 — วิเคราะห์เชิงลึก","พยากรณ์ผลผลิตรายเดือน","Export CSV/PDF","สรุปรายงานผ่าน LINE"]`,
+			Recommended: false, SortOrder: 2,
+		},
+	}
+
+	for _, p := range plans {
+		db.Create(&p)
+	}
+	logger.Get().Info("Subscription plans seeded", zap.Int("count", len(plans)))
+}
+
+// seedAiData creates default AI recommendations and crop suggestions if they don't exist.
+func seedAiData(db *gorm.DB) {
+	// Seed AI recommendations
+	var recCount int64
+	db.Model(&models.AiRecommendation{}).Count(&recCount)
+	if recCount == 0 {
+		now := time.Now()
+		recs := []models.AiRecommendation{
+			{
+				ID: "ai001", Title: "ค่า TDS มีแนวโน้มเพิ่มขึ้น",
+				Body: "พยากรณ์อากาศ 5 วันข้างหน้าไม่มีฝนในพื้นที่ของคุณ ค่า TDS อาจเพิ่มขึ้นถึง 450–500 ppm แนะนำให้เปิดประตูน้ำเพื่อเจือจางก่อนปลูก",
+				Type: "tds_alert", ConfidenceScore: 0.87,
+				ReasonChips: `[{"label":"TDS 420 ppm","category":"tds"},{"label":"เพิ่ม 3 วันติดกัน","category":"trend"},{"label":"ไม่มีฝน 5 วัน","category":"weather"}]`,
+				BaseModel:   models.BaseModel{CreatedAt: now.Add(-2 * time.Hour)},
+			},
+			{
+				ID: "ai002", Title: "แนะนำพืชทางเลือก",
+				Body: "ราคาข้าวในตลาดมีแนวโน้มลดลง 8% ในฤดูกาลนี้ การปลูกถั่วเขียวหรือข้าวโพดหวานอาจให้ผลตอบแทนสูงกว่า",
+				Type: "crop_suggestion", ConfidenceScore: 0.76,
+				ReasonChips: `[{"label":"ราคาข้าว ↓ 8%","category":"market"},{"label":"TDS 350 ppm","category":"tds"}]`,
+				BaseModel:   models.BaseModel{CreatedAt: now.Add(-5 * time.Hour)},
+			},
+			{
+				ID: "ai003", Title: "ระดับ TDS วิกฤต — Sensor 03",
+				Body: "Sensor 03 (คลองชลประทาน) วัดค่า TDS ที่ 720 ppm เกินระดับวิกฤต 500 ppm แนะนำให้ปิดการรับน้ำจากแหล่งนี้ทันทีและเปิดน้ำจาก Sensor 01 แทน",
+				Type: "tds_danger", ConfidenceScore: 0.96,
+				ReasonChips: `[{"label":"TDS 720 ppm","category":"tds"},{"label":"เกินเกณฑ์วิกฤต","category":"trend"},{"label":"ไม่มีฝน 5 วัน","category":"weather"}]`,
+				BaseModel:   models.BaseModel{CreatedAt: now.Add(-30 * time.Minute)},
+			},
+			{
+				ID: "ai004", Title: "ช่วงเวลาใส่ปุ๋ยที่เหมาะสม",
+				Body: "ค่า TDS อยู่ในระดับเหมาะสม (350 ppm) แนะนำให้ใส่ปุ๋ยสูตร 16-20-0 ในช่วงเช้า 06:00–08:00 น. ใน 3 วันข้างหน้า เนื่องจากมีฝนพยากรณ์ที่จะช่วยพาปุ๋ยลงดิน",
+				Type: "fertilizer", ConfidenceScore: 0.82,
+				ReasonChips: `[{"label":"TDS 350 ppm","category":"tds"},{"label":"มีฝน 3 วันข้างหน้า","category":"weather"}]`,
+				BaseModel:   models.BaseModel{CreatedAt: now.Add(-1 * time.Hour)},
+			},
+		}
+		for _, r := range recs {
+			db.Create(&r)
+		}
+		logger.Get().Info("AI recommendations seeded", zap.Int("count", len(recs)))
+	}
+
+	// Seed crop suggestions
+	var cropCount int64
+	db.Model(&models.CropSuggestion{}).Count(&cropCount)
+	if cropCount == 0 {
+		crops := []models.CropSuggestion{
+			{ID: "crop001", Name: "Mung Bean", NameTH: "ถั่วเขียว", EstimatedPricePerKg: 28.0,
+				Reason: "ทนน้ำเค็มปานกลาง เหมาะกับ TDS 300–500 ppm", Icon: "🫘",
+				MinTDS: 0, MaxTDS: 9999, SortOrder: 0},
+			{ID: "crop002", Name: "Sweet Corn", NameTH: "ข้าวโพดหวาน", EstimatedPricePerKg: 12.5,
+				Reason: "ราคาตลาดสูง ใช้น้ำน้อยกว่าข้าว 40%", Icon: "🌽",
+				MinTDS: 0, MaxTDS: 600, SortOrder: 1},
+			{ID: "crop003", Name: "Rice", NameTH: "ข้าว", EstimatedPricePerKg: 9.5,
+				Reason: "พืชหลักปัจจุบัน", Icon: "🌾",
+				MinTDS: 0, MaxTDS: 400, SortOrder: 2},
+		}
+		for _, c := range crops {
+			db.Create(&c)
+		}
+		logger.Get().Info("Crop suggestions seeded", zap.Int("count", len(crops)))
 	}
 }

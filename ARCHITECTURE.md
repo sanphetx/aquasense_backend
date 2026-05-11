@@ -5,9 +5,49 @@
 
 ---
 
-## 🔄 การเปลี่ยนแปลงล่าสุด (v1.1 — 2026-05-11)
+## 🔄 การเปลี่ยนแปลงล่าสุด
 
-### สิ่งที่เพิ่ม / แก้ไข
+### v1.2 — 2026-05-11 (Data Migration: Static → MySQL)
+
+**เป้าหมาย**: ย้าย mock data ทั้งหมด (AI recommendations, subscription plans, crop suggestions) จาก hard-coded Go code ไปเก็บใน MySQL tables จริง เพื่อให้ข้อมูลแสดงใน DBeaver ERD และจัดการผ่าน DB ได้
+
+| ไฟล์ | การเปลี่ยนแปลง |
+|------|---------------|
+| `models/models.go` | เพิ่ม 3 DB models: `SubscriptionPlan`, `AiRecommendation`, `CropSuggestion` |
+| `models/models.go` | เพิ่ม FK relationship `User.SubscriptionPlanRef → SubscriptionPlan` (ON DELETE SET NULL) |
+| `repository/repository.go` | เพิ่ม `SubscriptionPlanRepository` (GetAll, FindByID) |
+| `repository/repository.go` | เพิ่ม `AiRepository` (GetRecommendations, GetRecommendationByID, GetAdvisoryHistory, GetCropSuggestions) |
+| `service/service.go` | `AiService` เปลี่ยนจาก static data → ใช้ `AiRepository` query จาก DB |
+| `service/service.go` | `SubscriptionService` เปลี่ยนจาก static data → ใช้ `SubscriptionPlanRepository` query จาก DB |
+| `service/service.go` | ลบ `staticRecommendations`, `staticCropSuggestions`, `staticPlans` ทั้งหมด |
+| `database/database.go` | AutoMigrate เพิ่ม `SubscriptionPlan`, `AiRecommendation`, `CropSuggestion` |
+| `database/database.go` | เพิ่ม `seedPlans()` — seed 3 plans (free/starter/pro) ถ้ายังไม่มี |
+| `database/database.go` | เพิ่ม `seedAiData()` — seed 4 AI recommendations + 3 crop suggestions |
+| `database/database.go` | เปลี่ยนลำดับ AutoMigrate: `SubscriptionPlan` → `Sensor` → `User` → ... (FK dependency order) |
+| `database/database.go` | เปลี่ยนลำดับ seed: `seedPlans()` → `seedAiData()` → `seedAdmin()` (FK dependency order) |
+| `cmd/server/main.go` | เพิ่ม DI wiring: `AiRepository`, `SubscriptionPlanRepository` → inject เข้า services |
+| `scripts/schema.sql` | เพิ่ม CREATE TABLE: `subscription_plans`, `ai_recommendations`, `crop_suggestions` |
+| `scripts/schema.sql` | เพิ่ม FK constraint: `users.subscription_plan → subscription_plans.id` |
+| `scripts/schema.sql` | ย้าย `subscription_plans` CREATE + INSERT ขึ้นก่อน `users` (FK dependency) |
+| `scripts/schema.sql` | เพิ่ม seed data สำหรับ 3 ตารางใหม่ |
+
+#### Bug Fixes (v1.2)
+
+| Bug | ไฟล์ | แก้ไข |
+|-----|------|-------|
+| `CreateFarm` upsert คืน stale data | `repository.go` | เพิ่ม re-read จาก DB หลัง update |
+| `SaveSettings` ignore false/0 values | `repository.go` | ใช้ `map` แทน struct สำหรับ `Updates()` |
+| `GetNearbySensors` คืน soft-deleted sensors | `repository.go` | เพิ่ม `WHERE deleted_at IS NULL` |
+| `GetSensorHistory` คืน `null` แทน `[]` | `repository.go` | คืน empty slice แทน nil |
+| `RemoveNode` ไม่ sync `active_sensor_id` | `repository.go` | เพิ่ม logic clear active_sensor_id เมื่อลบ active node |
+| `GetUserNodes` N+1 query | `repository.go` | ใช้ `Preload("Sensor")` |
+| `LinkSensor` ไม่ validate sensor exists | `handlers.go` | เพิ่ม switch/case handle `ErrSensorNotFound` |
+| GORM tags ใช้ `db:` แทน `gorm:` | `models.go` | เปลี่ยนเป็น `gorm:` tags ทั้งหมด |
+| `GetFarmByUserID` ไม่ sort | `repository.go` | เพิ่ม `ORDER BY created_at DESC` |
+
+---
+
+### v1.1 — 2026-05-11 (Initial Architecture)
 
 | ไฟล์ | การเปลี่ยนแปลง |
 |------|---------------|
@@ -64,8 +104,8 @@
 | **Farm Management** | ✅ พร้อมใช้ | CRUD แปลงเกษตร, อัปเดตพิกัด, เชื่อมต่อ Sensor |
 | **Sensor / IoT Data** | ⏳ รอทีม IoT | API พร้อม แต่ข้อมูลมาจาก Seed data — ยังไม่มี Sensor จริง |
 | **Dashboard** | 🔶 ใช้ได้กับ Seed data | ดึง sensor+history พร้อมกัน (concurrent) แต่ข้อมูลยังเป็น seed |
-| **AI Recommendations** | 🔶 Static data | 4 รายการ hard-coded ใน service.go |
-| **Subscription** | 🔶 Mock | เปลี่ยน plan ใน DB ได้ แต่ไม่มี Payment Gateway |
+| **AI Recommendations** | ✅ DB-backed | 4 รายการใน `ai_recommendations` table + 3 crop suggestions ใน `crop_suggestions` table |
+| **Subscription** | 🔶 DB-backed, ไม่มี payment | 3 plans ใน `subscription_plans` table, FK จาก users |
 | **Notification Settings** | ✅ พร้อมใช้ | CRUD ตั้งค่าแจ้งเตือน upsert ใน DB |
 | **Push Notification / LINE** | ❌ ยังไม่มี | ต้องต่อ Firebase + LINE Notify |
 | **Node Management** | ✅ พร้อมใช้ | CRUD เชื่อมต่อ/ยกเลิก/เปลี่ยน Active Node, max 5 nodes, DB transaction |
@@ -73,10 +113,10 @@
 | **Admin Dashboard** | ✅ พร้อมใช้ | Admin ดู Dashboard ของ user คนอื่นได้ |
 
 ```
-✅ พร้อมใช้จริง:  Auth (email/password, Google, Apple), Farm, Node Management, Profile, Notifications, Admin, isFirstLogin
-🔶 Mock/Stub:     Social Login, AI, Subscription, Dashboard (seed data), Forgot Password  
+✅ พร้อมใช้จริง:  Auth (email/password, Google, Apple), Farm, Node Management, Profile, Notifications, Admin, isFirstLogin, AI (DB-backed), Subscription Plans (DB-backed)
+🔶 Mock/Stub:     Dashboard (seed data), Forgot Password  
 ⏳ รอทีมอื่น:     IoT Sensor (รอทีม hardware)
-❌ ยังไม่มี:      Apple Sign In, Push Notification, LINE Notify
+❌ ยังไม่มี:      Push Notification, LINE Notify, Payment Gateway
 ```
 
 > **หมายเหตุสำหรับ Frontend Developer**: ระบบที่เป็น 🔶 Mock ทุกตัว **เรียก API ได้ปกติ** — response format ถูกต้องตาม spec แล้ว เมื่อต่อระบบจริงไม่ต้องแก้โค้ดฝั่ง Flutter
@@ -113,7 +153,7 @@
 | `phone` | VARCHAR(20) | เบอร์โทร |
 | `birth_date` | DATE | วันเกิด |
 | `password_hash` | VARCHAR(255) | bcrypt hash |
-| `subscription_plan` | VARCHAR(50) | `free`, `starter`, `pro` |
+| `subscription_plan` | VARCHAR(50) FK → subscription_plans | `free`, `starter`, `pro` |
 | `avatar_url` | VARCHAR(255) | URL รูป (nullable) |
 | `role` | VARCHAR(20) | `user` หรือ `admin` |
 | `created_at`, `updated_at`, `deleted_at` | DATETIME | audit fields (BaseModel) |
@@ -164,14 +204,48 @@
 | `line_enabled` | TINYINT(1) | เปิด/ปิด LINE |
 | `daily_summary_time` | VARCHAR(20) | `none`, `morning`, `evening`, `both` |
 
-### 6. `user_nodes` *(ใหม่)*
+### 6. `user_nodes`
 | Column | Type | คำอธิบาย |
-|--------|------|---------|
+|--------|------|--------|
 | `id` | VARCHAR(36) PK | UUID |
 | `user_id` | VARCHAR(36) FK → users | เจ้าของ |
 | `sensor_id` | VARCHAR(36) FK → sensors | Sensor ที่เชื่อมต่อ |
 | `is_active` | TINYINT(1) | Node ที่ active อยู่ (ได้ 1 ตัว) |
 | `created_at`, `updated_at`, `deleted_at` | DATETIME | audit fields |
+
+### 7. `subscription_plans` *(v1.2)*
+| Column | Type | คำอธิบาย |
+|--------|------|--------|
+| `id` | VARCHAR(36) PK | plan ID (`free`, `starter`, `pro`) |
+| `name` | VARCHAR(50) | ชื่อแผน |
+| `price` | VARCHAR(50) | ราคาแสดงผล (เช่น `฿59`) |
+| `period` | VARCHAR(50) | ระยะเวลา (เช่น `/ฤดูกาล`) |
+| `features` | JSON | รายการฟีเจอร์ (array of strings) |
+| `recommended` | TINYINT(1) | แสดง badge "แนะนำ" |
+| `sort_order` | INT | ลำดับแสดงผล |
+
+### 8. `ai_recommendations` *(v1.2)*
+| Column | Type | คำอธิบาย |
+|--------|------|--------|
+| `id` | VARCHAR(36) PK | recommendation ID |
+| `title` | VARCHAR(255) | หัวข้อคำแนะนำ |
+| `body` | TEXT | เนื้อหาคำแนะนำฉบับเต็ม |
+| `type` | VARCHAR(50) | ประเภท: `tds_alert`, `tds_danger`, `crop_suggestion`, `fertilizer` |
+| `reason_chips` | JSON | array of `{label, category}` สำหรับ Explainable AI |
+| `confidence_score` | DECIMAL(3,2) | ระดับความเชื่อมั่น (0.00–1.00) |
+| `created_at`, `updated_at`, `deleted_at` | DATETIME | audit fields (BaseModel) |
+
+### 9. `crop_suggestions` *(v1.2)*
+| Column | Type | คำอธิบาย |
+|--------|------|--------|
+| `id` | VARCHAR(36) PK | crop ID |
+| `name` | VARCHAR(100) | ชื่อพืช (EN) |
+| `name_th` | VARCHAR(100) | ชื่อพืช (TH) |
+| `estimated_price_per_kg` | DECIMAL(10,2) | ราคาประมาณ (บาท/กก.) |
+| `reason` | TEXT | เหตุผลแนะนำ |
+| `icon` | VARCHAR(10) | emoji icon |
+| `min_tds`, `max_tds` | DECIMAL(10,2) | ช่วง TDS ที่เหมาะสม |
+| `sort_order` | INT | ลำดับแสดงผล |
 
 ---
 
@@ -216,16 +290,16 @@
 | `GET` | `/api/v1/sensors/:id/status` | สถานะ Sensor | ⏳ seed data |
 | `GET` | `/api/v1/dashboard/summary` | Dashboard รวม (concurrent fetch) | 🔶 seed data |
 | `GET` | `/api/v1/analytics/soil-moisture?period=7d` | ประวัติความชื้นดิน | ⏳ seed data |
-| `GET` | `/api/v1/ai/recommendations` | คำแนะนำ AI ทั้งหมด | 🔶 Static |
-| `GET` | `/api/v1/ai/recommendations/:id` | คำแนะนำ AI ตาม ID | 🔶 Static |
-| `GET` | `/api/v1/ai/advisory-history` | ประวัติคำแนะนำ (ย้อนหลัง 7 วัน) | 🔶 Static |
-| `GET` | `/api/v1/ai/crop-suggestions?tds=` | แนะนำพืชตามค่า TDS | 🔶 Static |
+| `GET` | `/api/v1/ai/recommendations` | คำแนะนำ AI ทั้งหมด | ✅ DB |
+| `GET` | `/api/v1/ai/recommendations/:id` | คำแนะนำ AI ตาม ID | ✅ DB |
+| `GET` | `/api/v1/ai/advisory-history` | ประวัติคำแนะนำ (ย้อนหลัง 7 วัน) | ✅ DB |
+| `GET` | `/api/v1/ai/crop-suggestions?tds=` | แนะนำพืชตามค่า TDS | ✅ DB |
 | `GET` | `/api/v1/users/profile` | ดูโปรไฟล์ | ✅ |
 | `PUT` | `/api/v1/users/profile` | แก้ไขโปรไฟล์ | ✅ |
 | `GET` | `/api/v1/users/notification-settings` | ดูตั้งค่าแจ้งเตือน | ✅ |
 | `PUT` | `/api/v1/users/notification-settings` | บันทึกตั้งค่าแจ้งเตือน (upsert) | ✅ |
-| `GET` | `/api/v1/subscriptions/plans` | ดูแผนสมาชิก | 🔶 ไม่มี payment |
-| `POST` | `/api/v1/subscriptions/subscribe` | สมัครแผน | 🔶 ไม่มี payment |
+| `GET` | `/api/v1/subscriptions/plans` | ดูแผนสมาชิก | ✅ DB (ไม่มี payment) |
+| `POST` | `/api/v1/subscriptions/subscribe` | สมัครแผน | ✅ DB (ไม่มี payment) |
 | `GET` | `/api/v1/nodes` | ดูรายการ Node | ✅ |
 | `POST` | `/api/v1/nodes` | เพิ่ม Node (max 5) | ✅ |
 | `PUT` | `/api/v1/nodes/:id/active` | ตั้ง Active Node (DB transaction) | ✅ |
@@ -245,13 +319,13 @@ aquasense-backend/
 ├── cmd/server/main.go          ← Entry point: DI + Graceful Shutdown
 ├── internal/
 │   ├── config/config.go        ← อ่านค่า .env เก็บเป็น struct + DSN()
-│   ├── database/database.go    ← MySQL connect + AutoMigrate + seedAdmin
+│   ├── database/database.go    ← MySQL connect + AutoMigrate + seedAdmin + seedPlans + seedAiData
 │   ├── logger/logger.go        ← zap logger (dev=console, prod=JSON)
 │   ├── middleware/middleware.go ← AuthMiddleware (JWT→context) + AdminMiddleware
 │   ├── models/models.go        ← DB models + JSON shapes + Request/Response types
-│   ├── repository/repository.go← CRUD layer (Auth, Farm, Sensor, Notification, Node)
+│   ├── repository/repository.go← CRUD layer (Auth, Farm, Sensor, Notification, Node, AI, SubscriptionPlan)
 │   ├── router/router.go        ← Route definitions + CORS + Swagger
-│   └── service/service.go      ← Business logic (Auth, AI static, Subscription static)
+│   └── service/service.go      ← Business logic (Auth, AI DB-backed, Subscription DB-backed)
 ├── docs/                       ← Swagger auto-generated files
 ├── scripts/schema.sql          ← SQL สร้างตาราง + seed data
 ├── .env                        ← Config จริง (ห้าม commit!)
@@ -269,12 +343,15 @@ aquasense-backend/
 
 #### `internal/database/database.go`
 - Connection pool: max 25, idle 10, lifetime 5 นาที
-- AutoMigrate: User, Farm, Sensor, WaterRecord, NotificationSettings, **UserNode**
+- AutoMigrate (ตามลำดับ FK): **SubscriptionPlan** → **Sensor** → User → Farm → WaterRecord → NotificationSettings → UserNode → **AiRecommendation** → **CropSuggestion**
+- Seed order: `seedPlans()` → `seedAiData()` → `seedAdmin()` (FK dependency)
 - Seed admin: `admin@gmail.com` / `123456` (role: admin, plan: pro)
+- Seed plans: free / starter / pro (3 records)
+- Seed AI: 4 recommendations + 3 crop suggestions
 
 #### `internal/models/models.go`
 - **BaseModel**: `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`
-- **DB Models**: User, Farm, Sensor, WaterRecord, NotificationSettings, UserNode
+- **DB Models**: User, Farm, Sensor, WaterRecord, NotificationSettings, UserNode, **SubscriptionPlan**, **AiRecommendation**, **CropSuggestion**
 - **JSON Models**: UserJSON, FarmJSON, SensorJSON, NodeJSON, WaterRecordJSON, ...
 - **Request Models**: LoginRequest, RegisterRequest (display_name support), CreateFarmRequest, ...
 - **Response**: APIResponse, ErrorResponse, Pagination, PaginatedResponse
@@ -285,11 +362,13 @@ aquasense-backend/
 - `SensorRepository`: GetNearbySensors (Haversine SQL), GetSensorLatest, GetSensorHistory
 - `NotificationRepository`: GetSettings (default ถ้าไม่มี), SaveSettings (upsert)
 - `NodeRepository`: GetUserNodes, AddNode (max 5), SetActiveNode (transaction), RemoveNode
+- `AiRepository`: GetRecommendations, GetRecommendationByID, GetAdvisoryHistory, GetCropSuggestions (TDS filter)
+- `SubscriptionPlanRepository`: GetAll, FindByID
 
 #### `internal/service/service.go`
 - `AuthService`: Login (isFirstLogin จาก HasFarm), Register (split display_name), SocialLogin (idempotent), ForgotPassword (stub)
-- `AiService`: static 4 recommendations + GetAdvisoryHistory (timestamp -7d) + GetCropSuggestions (TDS filter)
-- `SubscriptionService`: static 3 plans (free/starter/pro), ValidatePlan
+- `AiService`: query `AiRepository` → GetRecommendations, GetRecommendationByID, GetAdvisoryHistory (7d), GetCropSuggestions (TDS filter)
+- `SubscriptionService`: query `SubscriptionPlanRepository` → GetPlans, ValidatePlan
 
 #### `internal/handlers/handlers.go`
 - Helper functions: `ok`, `created`, `badRequest`, `unauthorized`, `notFound`, `serverError`
@@ -362,3 +441,6 @@ curl http://localhost:8080/health
 - **Sensors**: 5 ตัว (s001–s005) พร้อมพิกัด + ค่า TDS
 - **Water Records**: ประวัติ 7 วัน ของ s001 + s002
 - **Farm**: "แปลงนาหัวทุ่ง" 12.5 ไร่ เชื่อมกับ s001
+- **Subscription Plans**: free / starter (฿59, recommended) / pro (฿199)
+- **AI Recommendations**: 4 รายการ (tds_alert, crop_suggestion, tds_danger, fertilizer)
+- **Crop Suggestions**: 3 รายการ (ถั่วเขียว, ข้าวโพดหวาน, ข้าว) พร้อม TDS range

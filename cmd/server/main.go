@@ -61,11 +61,13 @@ func main() {
 	sensorRepo := repository.NewSensorRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
 	nodeRepo := repository.NewNodeRepository(db)
+	aiRepo := repository.NewAiRepository(db)
+	subPlanRepo := repository.NewSubscriptionPlanRepository(db)
 
 	// ── Services ─────────────────────────────────────────────────────────────
 	authSvc := service.NewAuthService(authRepo, cfg.JWTSecret, cfg.JWTExpireHours, cfg.GoogleClientID, cfg.AppleClientID)
-	aiSvc := service.NewAiService()
-	subSvc := service.NewSubscriptionService()
+	aiSvc := service.NewAiService(aiRepo)
+	subSvc := service.NewSubscriptionService(subPlanRepo)
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
 	authHandler := handlers.NewAuthHandler(authSvc)

@@ -75,9 +75,10 @@ type User struct {
 	Phone            string `gorm:"type:varchar(20)"`
 	BirthDate        time.Time
 	PasswordHash     string  `gorm:"type:varchar(255)"`
-	SubscriptionPlan string  `gorm:"type:varchar(50)"`
-	AvatarURL        *string `gorm:"type:varchar(255)"`
-	Role             string  `gorm:"type:varchar(20);default:'user'"`
+	SubscriptionPlan    string            `gorm:"type:varchar(50)"`
+	SubscriptionPlanRef *SubscriptionPlan  `gorm:"foreignKey:SubscriptionPlan;references:ID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL"`
+	AvatarURL           *string            `gorm:"type:varchar(255)"`
+	Role                string             `gorm:"type:varchar(20);default:'user'"`
 
 	BaseModel
 }
@@ -123,7 +124,8 @@ type UpdateProfileRequest struct {
 // Farm is the database model.
 type Farm struct {
 	ID                   string   `gorm:"primaryKey;type:varchar(36)"`
-	UserID               string   `gorm:"type:varchar(36);not null;index;constraint:OnDelete:CASCADE,OnUpdate:CASCADE"` // FK → users
+	UserID               string   `gorm:"type:varchar(36);not null;index"` // FK → users
+	User                 User     `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE,OnUpdate:CASCADE"`
 	Name                 string   `gorm:"type:varchar(255);not null"`
 	AreaSizeRai          float64
 	CropType             string   `gorm:"type:varchar(50)"`
@@ -135,7 +137,8 @@ type Farm struct {
 	WaterSource          string   `gorm:"type:varchar(100)"`
 	Latitude             *float64
 	Longitude            *float64
-	ActiveSensorID       *string  `gorm:"type:varchar(36)"` // soft-ref → sensors (no cascade, sensor may be independent)
+	ActiveSensorID       *string  `gorm:"type:varchar(36)"` // FK → sensors (SET NULL on delete)
+	ActiveSensor         *Sensor  `gorm:"foreignKey:ActiveSensorID;constraint:OnDelete:SET NULL"`
 	BaseModel
 }
 
@@ -190,8 +193,10 @@ type LinkSensorRequest struct {
 // [Fix L] FK constraints: cascade delete when user or sensor is removed.
 type UserNode struct {
 	ID       string `gorm:"primaryKey;type:varchar(36)"`
-	UserID   string `gorm:"type:varchar(36);not null;index;constraint:OnDelete:CASCADE"`
-	SensorID string `gorm:"type:varchar(36);not null;constraint:OnDelete:CASCADE"`
+	UserID   string `gorm:"type:varchar(36);not null;index;uniqueIndex:idx_user_sensor"`
+	User     User   `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	SensorID string `gorm:"type:varchar(36);not null;uniqueIndex:idx_user_sensor"`
+	Sensor   Sensor `gorm:"foreignKey:SensorID;constraint:OnDelete:CASCADE"`
 	IsActive bool   `gorm:"default:false"`
 	BaseModel
 }
@@ -212,14 +217,14 @@ type NodeJSON struct {
 
 // Sensor is the database model.
 type Sensor struct {
-	ID          string   `db:"id"`
-	Name        string   `db:"name"`
-	Latitude    float64  `db:"latitude"`
-	Longitude   float64  `db:"longitude"`
-	Status      string   `db:"status"` // safe | warning | danger
-	TDSValue    float64  `db:"tds_value"`
-	Temperature *float64 `db:"temperature"`
-	PH          *float64 `db:"ph"`
+	ID          string   `gorm:"primaryKey;type:varchar(36)"`
+	Name        string   `gorm:"type:varchar(255);not null"`
+	Latitude    float64  `gorm:"type:decimal(10,7);not null"`
+	Longitude   float64  `gorm:"type:decimal(10,7);not null"`
+	Status      string   `gorm:"type:enum('safe','warning','danger');default:'safe'"` // safe | warning | danger
+	TDSValue    float64  `gorm:"type:decimal(10,2);not null;default:0"`
+	Temperature *float64 `gorm:"type:decimal(5,2)"`
+	PH          *float64 `gorm:"type:decimal(4,2)"`
 	BaseModel
 }
 
@@ -241,14 +246,15 @@ type SensorJSON struct {
 
 // WaterRecord is the database model for sensor history.
 type WaterRecord struct {
-	ID           int64     `db:"id"`
-	SensorID     string    `db:"sensor_id"`
-	Date         time.Time `db:"date"`
-	TDS          float64   `db:"tds"`
-	PH           *float64  `db:"ph"`
-	Temperature  *float64  `db:"temperature"`
-	SoilMoisture *float64  `db:"soil_moisture"`
-	Status       string    `db:"status"`
+	ID           int64     `gorm:"primaryKey;autoIncrement"`
+	SensorID     string    `gorm:"type:varchar(36);not null;index"`
+	Sensor       Sensor    `gorm:"foreignKey:SensorID;constraint:OnDelete:CASCADE"`
+	Date         time.Time `gorm:"not null;index"`
+	TDS          float64   `gorm:"type:decimal(10,2);not null"`
+	PH           *float64  `gorm:"type:decimal(4,2)"`
+	Temperature  *float64  `gorm:"type:decimal(5,2)"`
+	SoilMoisture *float64  `gorm:"type:decimal(5,2)"`
+	Status       string    `gorm:"type:enum('safe','warning','danger');default:'safe'"`
 }
 
 // WaterRecordJSON matches WaterRecordModel.fromJson() in Flutter.
@@ -305,11 +311,12 @@ type DashboardSummaryJSON struct {
 
 // NotificationSettings is the database model.
 type NotificationSettings struct {
-	UserID           string `gorm:"primaryKey"`
-	PushEnabled      bool
-	TDSThreshold     float64
-	LineEnabled      bool
-	DailySummaryTime string // none | morning | evening | both
+	UserID           string  `gorm:"primaryKey;type:varchar(36)"`
+	User             User    `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	PushEnabled      bool    `gorm:"default:true"`
+	TDSThreshold     float64 `gorm:"type:decimal(10,2);default:400"`
+	LineEnabled      bool    `gorm:"default:false"`
+	DailySummaryTime string  `gorm:"type:varchar(20);default:'none'"` // none | morning | evening | both
 }
 
 // NotificationSettingsJSON matches NotificationSettingsModel.fromJson() in Flutter.
@@ -322,6 +329,17 @@ type NotificationSettingsJSON struct {
 
 // ─── Subscription ────────────────────────────────────────────────────────────
 
+// SubscriptionPlan is the database model.
+type SubscriptionPlan struct {
+	ID          string `gorm:"primaryKey;type:varchar(36)"`
+	Name        string `gorm:"type:varchar(50);not null"`
+	Price       string `gorm:"type:varchar(50);not null"`
+	Period      string `gorm:"type:varchar(50)"`
+	Features    string `gorm:"type:json"` // JSON array of strings
+	Recommended bool   `gorm:"default:false"`
+	SortOrder   int    `gorm:"default:0"` // display order
+}
+
 // SubscriptionPlanJSON matches SubscriptionPlanModel.fromJson() in Flutter.
 type SubscriptionPlanJSON struct {
 	ID          string   `json:"id"`
@@ -330,6 +348,34 @@ type SubscriptionPlanJSON struct {
 	Period      string   `json:"period"`
 	Features    []string `json:"features"`
 	Recommended bool     `json:"recommended"`
+}
+
+// ─── AI Recommendation ──────────────────────────────────────────────────────
+
+// AiRecommendation is the database model.
+type AiRecommendation struct {
+	ID              string  `gorm:"primaryKey;type:varchar(36)"`
+	Title           string  `gorm:"type:varchar(255);not null"`
+	Body            string  `gorm:"type:text;not null"`
+	Type            string  `gorm:"type:varchar(50);not null"` // tds_alert | tds_danger | crop_suggestion | fertilizer
+	ReasonChips     string  `gorm:"type:json"`                 // JSON array of {label, category}
+	ConfidenceScore float64 `gorm:"type:decimal(3,2);not null"`
+	BaseModel
+}
+
+// ─── Crop Suggestion ─────────────────────────────────────────────────────────
+
+// CropSuggestion is the database model.
+type CropSuggestion struct {
+	ID                  string  `gorm:"primaryKey;type:varchar(36)"`
+	Name                string  `gorm:"type:varchar(100);not null"`
+	NameTH              string  `gorm:"type:varchar(100);not null"`
+	EstimatedPricePerKg float64 `gorm:"type:decimal(10,2);not null"`
+	Reason              string  `gorm:"type:text;not null"`
+	Icon                string  `gorm:"type:varchar(10)"`
+	MinTDS              float64 `gorm:"type:decimal(10,2);default:0"`   // show when TDS >= this
+	MaxTDS              float64 `gorm:"type:decimal(10,2);default:9999"` // show when TDS <= this
+	SortOrder           int     `gorm:"default:0"`
 }
 
 // SubscribeRequest mirrors POST /subscriptions/subscribe body.

@@ -125,6 +125,30 @@ func (r *FarmRepository) CreateFarm(userID string, req models.CreateFarmRequest)
 		return nil, fmt.Errorf("marshal soil_problems: %w", err)
 	}
 
+	// Check if user already has a farm — if so, update it instead of creating a duplicate
+	var existing models.Farm
+	if err := r.db.Where("user_id = ?", userID).Order("created_at DESC").First(&existing).Error; err == nil {
+		// Farm exists → update it
+		updates := map[string]interface{}{
+			"name":                  req.Name,
+			"area_size_rai":         req.AreaSizeRai,
+			"crop_type":             req.CropType,
+			"yield_ton_per_rai":     req.YieldTonPerRai,
+			"avg_price_baht_per_kg": req.AvgPriceBahtPerKg,
+			"distribution_channels": string(distJSON),
+			"soil_ph":               req.SoilPh,
+			"soil_problems":         string(probJSON),
+			"water_source":          req.WaterSource,
+		}
+		if err := r.db.Model(&existing).Updates(updates).Error; err != nil {
+			return nil, err
+		}
+		// Re-read from DB to get the actual updated values
+		r.db.Where("id = ?", existing.ID).First(&existing)
+		return r.farmToJSON(&existing, req.DistributionChannels, req.SoilProblems), nil
+	}
+
+	// No farm yet → create new
 	farm := &models.Farm{
 		ID:                   uuid.NewString(),
 		UserID:               userID,
@@ -143,26 +167,34 @@ func (r *FarmRepository) CreateFarm(userID string, req models.CreateFarmRequest)
 		return nil, err
 	}
 
+	return r.farmToJSON(farm, req.DistributionChannels, req.SoilProblems), nil
+}
+
+// farmToJSON converts a Farm model to FarmJSON using pre-parsed slices.
+func (r *FarmRepository) farmToJSON(farm *models.Farm, dist, prob []string) *models.FarmJSON {
 	return &models.FarmJSON{
 		ID:                   farm.ID,
-		UserID:               farm.UserID, // ระบุเจ้าของ farm
+		UserID:               farm.UserID,
 		Name:                 farm.Name,
 		AreaSizeRai:          farm.AreaSizeRai,
 		CropType:             farm.CropType,
 		YieldTonPerRai:       farm.YieldTonPerRai,
 		AvgPriceBahtPerKg:    farm.AvgPriceBahtPerKg,
-		DistributionChannels: req.DistributionChannels,
+		DistributionChannels: dist,
 		SoilPh:               farm.SoilPh,
-		SoilProblems:         req.SoilProblems,
+		SoilProblems:         prob,
 		WaterSource:          farm.WaterSource,
+		Latitude:             farm.Latitude,
+		Longitude:            farm.Longitude,
+		ActiveSensorID:       farm.ActiveSensorID,
 		CreatedAt:            farm.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:            farm.UpdatedAt.Format(time.RFC3339),
-	}, nil
+	}
 }
 
 func (r *FarmRepository) GetFarmByUserID(userID string) (*models.FarmJSON, error) {
 	var farm models.Farm
-	if err := r.db.Where("user_id = ?", userID).Order("created_at asc").First(&farm).Error; err != nil {
+	if err := r.db.Where("user_id = ?", userID).Order("created_at DESC").First(&farm).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
@@ -218,8 +250,17 @@ func (r *FarmRepository) UpdateLocation(userID, farmID string, lat, lng float64)
 	return nil
 }
 
-// [Security #1] LinkSensor verifies farm ownership before linking.
+// [Security #1] LinkSensor verifies farm ownership and sensor existence before linking.
 func (r *FarmRepository) LinkSensor(userID, farmID, sensorID string) error {
+	// Validate sensor exists
+	var sensor models.Sensor
+	if err := r.db.Where("id = ?", sensorID).First(&sensor).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return ErrSensorNotFound
+		}
+		return err
+	}
+
 	result := r.db.Model(&models.Farm{}).Where("id = ? AND user_id = ?", farmID, userID).Update("active_sensor_id", sensorID)
 	if result.Error != nil {
 		return result.Error
@@ -296,6 +337,7 @@ func (r *SensorRepository) GetNearbySensors(lat, lng float64) ([]models.SensorJS
 				), 2
 			) AS distance_km
 		FROM sensors
+		WHERE deleted_at IS NULL
 		ORDER BY distance_km ASC
 		LIMIT 50
 	`, lat, lng, lat).Scan(&sensors).Error
@@ -339,7 +381,7 @@ func (r *SensorRepository) GetSensorHistory(sensorID, period string) ([]models.W
 		return nil, err
 	}
 
-	var result []models.WaterRecordJSON
+	result := make([]models.WaterRecordJSON, 0, len(records))
 	for _, rec := range records {
 		result = append(result, models.WaterRecordJSON{
 			Date:         rec.Date.Format(time.RFC3339),
@@ -400,11 +442,11 @@ func (r *NotificationRepository) SaveSettings(userID string, s models.Notificati
 		return err
 	}
 
-	return r.db.Model(&existing).Updates(models.NotificationSettings{
-		PushEnabled:      s.PushEnabled,
-		TDSThreshold:     s.TDSThreshold,
-		LineEnabled:      s.LineEnabled,
-		DailySummaryTime: s.DailySummaryTime,
+	return r.db.Model(&existing).Updates(map[string]interface{}{
+		"push_enabled":       s.PushEnabled,
+		"tds_threshold":      s.TDSThreshold,
+		"line_enabled":       s.LineEnabled,
+		"daily_summary_time": s.DailySummaryTime,
 	}).Error
 }
 
@@ -421,24 +463,20 @@ func NewNodeRepository(db *gorm.DB) *NodeRepository {
 // GetUserNodes returns all sensor nodes linked to a user with sensor details.
 func (r *NodeRepository) GetUserNodes(userID string) ([]models.NodeJSON, error) {
 	var nodes []models.UserNode
-	if err := r.db.Where("user_id = ?", userID).Order("created_at ASC").Find(&nodes).Error; err != nil {
+	if err := r.db.Preload("Sensor").Where("user_id = ?", userID).Order("created_at ASC").Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 
 	var result []models.NodeJSON
 	for _, n := range nodes {
-		var sensor models.Sensor
-		if err := r.db.Where("id = ?", n.SensorID).First(&sensor).Error; err != nil {
-			continue // skip if sensor not found
-		}
 		result = append(result, models.NodeJSON{
 			ID:          n.ID,
-			SensorID:    sensor.ID,
-			SensorName:  sensor.Name,
-			Status:      sensor.Status,
-			TDSValue:    sensor.TDSValue,
+			SensorID:    n.Sensor.ID,
+			SensorName:  n.Sensor.Name,
+			Status:      n.Sensor.Status,
+			TDSValue:    n.Sensor.TDSValue,
 			IsActive:    n.IsActive,
-			LastUpdated: sensor.UpdatedAt.Format(time.RFC3339),
+			LastUpdated: n.Sensor.UpdatedAt.Format(time.RFC3339),
 		})
 	}
 	return result, nil
@@ -533,13 +571,192 @@ func (r *NodeRepository) SetActiveNode(userID, nodeID string) error {
 }
 
 // RemoveNode unlinks a sensor from a user.
+// If the removed node was active, promote the next available node or clear active_sensor_id.
 func (r *NodeRepository) RemoveNode(userID, nodeID string) error {
-	result := r.db.Where("id = ? AND user_id = ?", nodeID, userID).Delete(&models.UserNode{})
-	if result.Error != nil {
-		return result.Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Find the node before deleting (need to know if it was active)
+		var node models.UserNode
+		if err := tx.Where("id = ? AND user_id = ?", nodeID, userID).First(&node).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return ErrNodeNotFound
+			}
+			return err
+		}
+
+		wasActive := node.IsActive
+		removedSensorID := node.SensorID
+
+		// Delete the node
+		if err := tx.Delete(&node).Error; err != nil {
+			return err
+		}
+
+		// If the removed node was active, promote another or clear farm's active_sensor_id
+		if wasActive {
+			var nextNode models.UserNode
+			if err := tx.Where("user_id = ?", userID).Order("created_at ASC").First(&nextNode).Error; err == nil {
+				// Promote next node
+				tx.Model(&nextNode).Update("is_active", true)
+				tx.Model(&models.Farm{}).Where("user_id = ?", userID).Update("active_sensor_id", nextNode.SensorID)
+			} else {
+				// No nodes left — clear farm's active_sensor_id
+				tx.Model(&models.Farm{}).Where("user_id = ? AND active_sensor_id = ?", userID, removedSensorID).Update("active_sensor_id", nil)
+			}
+		}
+
+		return nil
+	})
+}
+
+// ─── SubscriptionPlanRepository ──────────────────────────────────────────────
+
+type SubscriptionPlanRepository struct {
+	db *gorm.DB
+}
+
+func NewSubscriptionPlanRepository(db *gorm.DB) *SubscriptionPlanRepository {
+	return &SubscriptionPlanRepository{db: db}
+}
+
+func (r *SubscriptionPlanRepository) GetAll() ([]models.SubscriptionPlanJSON, error) {
+	var plans []models.SubscriptionPlan
+	if err := r.db.Order("sort_order ASC").Find(&plans).Error; err != nil {
+		return nil, err
 	}
-	if result.RowsAffected == 0 {
-		return ErrNodeNotFound // [Fix K] sentinel error
+
+	result := make([]models.SubscriptionPlanJSON, 0, len(plans))
+	for _, p := range plans {
+		var features []string
+		if err := json.Unmarshal([]byte(p.Features), &features); err != nil {
+			features = []string{}
+		}
+		result = append(result, models.SubscriptionPlanJSON{
+			ID:          p.ID,
+			Name:        p.Name,
+			Price:       p.Price,
+			Period:      p.Period,
+			Features:    features,
+			Recommended: p.Recommended,
+		})
 	}
-	return nil
+	return result, nil
+}
+
+func (r *SubscriptionPlanRepository) FindByID(planID string) bool {
+	var count int64
+	r.db.Model(&models.SubscriptionPlan{}).Where("id = ?", planID).Count(&count)
+	return count > 0
+}
+
+// ─── AiRepository ────────────────────────────────────────────────────────────
+
+type AiRepository struct {
+	db *gorm.DB
+}
+
+func NewAiRepository(db *gorm.DB) *AiRepository {
+	return &AiRepository{db: db}
+}
+
+func (r *AiRepository) GetRecommendations() ([]models.AiRecommendationJSON, error) {
+	var recs []models.AiRecommendation
+	if err := r.db.Order("created_at DESC").Find(&recs).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]models.AiRecommendationJSON, 0, len(recs))
+	for _, rec := range recs {
+		var chips []models.ReasonChip
+		if err := json.Unmarshal([]byte(rec.ReasonChips), &chips); err != nil {
+			chips = []models.ReasonChip{}
+		}
+		result = append(result, models.AiRecommendationJSON{
+			ID:              rec.ID,
+			Title:           rec.Title,
+			Body:            rec.Body,
+			Type:            rec.Type,
+			CreatedAt:       rec.CreatedAt.Format(time.RFC3339),
+			ReasonChips:     chips,
+			ConfidenceScore: rec.ConfidenceScore,
+		})
+	}
+	return result, nil
+}
+
+func (r *AiRepository) GetRecommendationByID(id string) (*models.AiRecommendationJSON, error) {
+	var rec models.AiRecommendation
+	if err := r.db.Where("id = ?", id).First(&rec).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var chips []models.ReasonChip
+	if err := json.Unmarshal([]byte(rec.ReasonChips), &chips); err != nil {
+		chips = []models.ReasonChip{}
+	}
+
+	return &models.AiRecommendationJSON{
+		ID:              rec.ID,
+		Title:           rec.Title,
+		Body:            rec.Body,
+		Type:            rec.Type,
+		CreatedAt:       rec.CreatedAt.Format(time.RFC3339),
+		ReasonChips:     chips,
+		ConfidenceScore: rec.ConfidenceScore,
+	}, nil
+}
+
+func (r *AiRepository) GetAdvisoryHistory() ([]models.AiRecommendationJSON, error) {
+	var recs []models.AiRecommendation
+	if err := r.db.Where("created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)").
+		Order("created_at DESC").Find(&recs).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]models.AiRecommendationJSON, 0, len(recs))
+	for _, rec := range recs {
+		var chips []models.ReasonChip
+		if err := json.Unmarshal([]byte(rec.ReasonChips), &chips); err != nil {
+			chips = []models.ReasonChip{}
+		}
+		result = append(result, models.AiRecommendationJSON{
+			ID:              rec.ID,
+			Title:           rec.Title,
+			Body:            rec.Body,
+			Type:            rec.Type,
+			CreatedAt:       rec.CreatedAt.Format(time.RFC3339),
+			ReasonChips:     chips,
+			ConfidenceScore: rec.ConfidenceScore,
+		})
+	}
+	return result, nil
+}
+
+func (r *AiRepository) GetCropSuggestions(tds float64) ([]models.CropSuggestionJSON, error) {
+	var crops []models.CropSuggestion
+	if err := r.db.Where("min_tds <= ? AND max_tds >= ?", tds, tds).
+		Order("sort_order ASC").Find(&crops).Error; err != nil {
+		return nil, err
+	}
+
+	// If no match (e.g. tds=0), return all
+	if len(crops) == 0 {
+		if err := r.db.Order("sort_order ASC").Find(&crops).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	result := make([]models.CropSuggestionJSON, 0, len(crops))
+	for _, c := range crops {
+		result = append(result, models.CropSuggestionJSON{
+			Name:                c.Name,
+			NameTH:              c.NameTH,
+			EstimatedPricePerKg: c.EstimatedPricePerKg,
+			Reason:              c.Reason,
+			Icon:                c.Icon,
+		})
+	}
+	return result, nil
 }
