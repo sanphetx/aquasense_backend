@@ -98,7 +98,8 @@ func (h *AuthHandler) SocialLogin(c *gin.Context) {
 
 	resp, err := h.svc.SocialLogin(req)
 	if err != nil {
-		serverError(c, err)
+		// Social token verification failure is an auth error (401), not a server error (500)
+		unauthorized(c, err.Error())
 		return
 	}
 	ok(c, resp)

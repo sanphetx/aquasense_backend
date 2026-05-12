@@ -38,7 +38,7 @@ func NewAuthRepository(db *gorm.DB) *AuthRepository {
 func (r *AuthRepository) FindByEmail(email string) (*models.User, error) {
 	var user models.User
 	if err := r.db.Where("email = ?", email).First(&user).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -49,7 +49,7 @@ func (r *AuthRepository) FindByEmail(email string) (*models.User, error) {
 func (r *AuthRepository) FindByID(id string) (*models.User, error) {
 	var user models.User
 	if err := r.db.Where("id = ?", id).First(&user).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -195,7 +195,7 @@ func (r *FarmRepository) farmToJSON(farm *models.Farm, dist, prob []string) *mod
 func (r *FarmRepository) GetFarmByUserID(userID string) (*models.FarmJSON, error) {
 	var farm models.Farm
 	if err := r.db.Where("user_id = ?", userID).Order("created_at DESC").First(&farm).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -255,7 +255,7 @@ func (r *FarmRepository) LinkSensor(userID, farmID, sensorID string) error {
 	// Validate sensor exists
 	var sensor models.Sensor
 	if err := r.db.Where("id = ?", sensorID).First(&sensor).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrSensorNotFound
 		}
 		return err
@@ -274,7 +274,7 @@ func (r *FarmRepository) LinkSensor(userID, farmID, sensorID string) error {
 func (r *FarmRepository) GetFarmByID(farmID string) (*models.FarmJSON, error) {
 	var farm models.Farm
 	if err := r.db.Where("id = ?", farmID).First(&farm).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -350,7 +350,7 @@ func (r *SensorRepository) GetNearbySensors(lat, lng float64) ([]models.SensorJS
 func (r *SensorRepository) GetSensorLatest(sensorID string) (*models.SensorJSON, error) {
 	var s models.Sensor
 	if err := r.db.Where("id = ?", sensorID).First(&s).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -408,7 +408,7 @@ func NewNotificationRepository(db *gorm.DB) *NotificationRepository {
 func (r *NotificationRepository) GetSettings(userID string) (*models.NotificationSettingsJSON, error) {
 	var s models.NotificationSettings
 	err := r.db.Where("user_id = ?", userID).First(&s).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return &models.NotificationSettingsJSON{
 			PushEnabled:      true,
 			TDSThreshold:     400,
@@ -430,7 +430,7 @@ func (r *NotificationRepository) GetSettings(userID string) (*models.Notificatio
 
 func (r *NotificationRepository) SaveSettings(userID string, s models.NotificationSettingsJSON) error {
 	var existing models.NotificationSettings
-	if err := r.db.Where("user_id = ?", userID).First(&existing).Error; err == gorm.ErrRecordNotFound {
+	if err := r.db.Where("user_id = ?", userID).First(&existing).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 		return r.db.Create(&models.NotificationSettings{
 			UserID:           userID,
 			PushEnabled:      s.PushEnabled,
@@ -492,7 +492,7 @@ func (r *NodeRepository) AddNode(userID, sensorID string) (*models.NodeJSON, err
 		// [Fix G] Validate sensor exists before linking
 		var sensor models.Sensor
 		if err := tx.Where("id = ?", sensorID).First(&sensor).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrSensorNotFound
 			}
 			return err
@@ -577,7 +577,7 @@ func (r *NodeRepository) RemoveNode(userID, nodeID string) error {
 		// Find the node before deleting (need to know if it was active)
 		var node models.UserNode
 		if err := tx.Where("id = ? AND user_id = ?", nodeID, userID).First(&node).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrNodeNotFound
 			}
 			return err
@@ -686,7 +686,7 @@ func (r *AiRepository) GetRecommendations() ([]models.AiRecommendationJSON, erro
 func (r *AiRepository) GetRecommendationByID(id string) (*models.AiRecommendationJSON, error) {
 	var rec models.AiRecommendation
 	if err := r.db.Where("id = ?", id).First(&rec).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err

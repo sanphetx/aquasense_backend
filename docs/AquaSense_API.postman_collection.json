@@ -1,0 +1,626 @@
+{
+	"info": {
+		"name": "AquaSense Backend API",
+		"description": "AquaSense TDS Backend — ทุก endpoint ที่ใช้งานได้",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		}
+	],
+	"item": [
+		{
+			"name": "Public — Auth",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["health"]
+						},
+						"auth": { "type": "noauth" }
+					}
+				},
+				{
+					"name": "Login (somchai)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.success && json.data && json.data.token) {",
+									"    pm.collectionVariables.set('token', json.data.token);",
+									"    console.log('Token saved automatically');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"somchai@example.com\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "login"]
+						},
+						"auth": { "type": "noauth" }
+					}
+				},
+				{
+					"name": "Login (admin)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.success && json.data && json.data.token) {",
+									"    pm.collectionVariables.set('token', json.data.token);",
+									"    console.log('Admin token saved');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@gmail.com\",\n  \"password\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "login"]
+						},
+						"auth": { "type": "noauth" }
+					}
+				},
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"display_name\": \"ทดสอบ ระบบ\",\n  \"email\": \"test@example.com\",\n  \"phone\": \"0811111111\",\n  \"birth_date\": \"1990-01-01T00:00:00Z\",\n  \"password\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "register"]
+						},
+						"auth": { "type": "noauth" }
+					}
+				},
+				{
+					"name": "Social Login — Google",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"  var json = pm.response.json();",
+									"  if (json.data && json.data.token) {",
+									"    pm.collectionVariables.set('token', json.data.token);",
+									"    console.log('Google token saved');",
+									"  }",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"provider\": \"google\",\n  \"id_token\": \"YOUR_GOOGLE_ID_TOKEN_HERE\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/social",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "social"]
+						},
+						"auth": { "type": "noauth" }
+					}
+				},
+				{
+					"name": "Social Login — Apple",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"  var json = pm.response.json();",
+									"  if (json.data && json.data.token) {",
+									"    pm.collectionVariables.set('token', json.data.token);",
+									"    console.log('Apple token saved');",
+									"  }",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"provider\": \"apple\",\n  \"id_token\": \"YOUR_APPLE_ID_TOKEN_HERE\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/social",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "social"]
+						},
+						"auth": { "type": "noauth" }
+					}
+				},
+				{
+					"name": "Forgot Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"somchai@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "forgot-password"]
+						},
+						"auth": { "type": "noauth" }
+					}
+				}
+			]
+		},
+		{
+			"name": "Farms",
+			"item": [
+				{
+					"name": "Get My Farm",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/farms",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "farms"]
+						}
+					}
+				},
+				{
+					"name": "Create Farm",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"แปลงทดสอบ\",\n  \"area_size_rai\": 5.0,\n  \"crop_type\": \"rice\",\n  \"yield_ton_per_rai\": 0.8,\n  \"avg_price_baht_per_kg\": 9.5,\n  \"distribution_channels\": [\"สหกรณ์\"],\n  \"soil_ph\": 6.5,\n  \"soil_problems\": [\"ดินเปรี้ยว\"],\n  \"water_source\": \"น้ำฝน\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/farms",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "farms"]
+						}
+					}
+				},
+				{
+					"name": "Update Farm Location",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 14.88,\n  \"longitude\": 100.99\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/farms/f001/location",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "farms", "f001", "location"]
+						}
+					}
+				},
+				{
+					"name": "Link Sensor to Farm",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"sensor_id\": \"s001\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/farms/f001/sensor",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "farms", "f001", "sensor"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Sensors",
+			"item": [
+				{
+					"name": "Get Nearby Sensors",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/sensors/nearby?lat=14.88&lng=100.99",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "sensors", "nearby"],
+							"query": [
+								{ "key": "lat", "value": "14.88" },
+								{ "key": "lng", "value": "100.99" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Sensor Latest (s001)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/sensors/s001/latest",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "sensors", "s001", "latest"]
+						}
+					}
+				},
+				{
+					"name": "Get Sensor History (s001, 7d)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/sensors/s001/history?period=7d",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "sensors", "s001", "history"],
+							"query": [
+								{ "key": "period", "value": "7d" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Sensor Status (s001)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/sensors/s001/status",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "sensors", "s001", "status"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Dashboard",
+			"item": [
+				{
+					"name": "Get Dashboard Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/dashboard/summary",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "dashboard", "summary"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Analytics",
+			"item": [
+				{
+					"name": "Get Soil Moisture History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/analytics/soil-moisture?period=7d",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "analytics", "soil-moisture"],
+							"query": [
+								{ "key": "period", "value": "7d" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "AI",
+			"item": [
+				{
+					"name": "Get All Recommendations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ai/recommendations",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "ai", "recommendations"]
+						}
+					}
+				},
+				{
+					"name": "Get Recommendation Detail (ai001)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ai/recommendations/ai001",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "ai", "recommendations", "ai001"]
+						}
+					}
+				},
+				{
+					"name": "Get Advisory History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ai/advisory-history",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "ai", "advisory-history"]
+						}
+					}
+				},
+				{
+					"name": "Get Crop Suggestions (TDS=350)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ai/crop-suggestions?tds=350",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "ai", "crop-suggestions"],
+							"query": [
+								{ "key": "tds", "value": "350" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Account",
+			"item": [
+				{
+					"name": "Get Profile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/users/profile",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "users", "profile"]
+						}
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"สมชาย\",\n  \"last_name\": \"ใจดี\",\n  \"phone\": \"0899999999\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/users/profile",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "users", "profile"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Notification Settings",
+			"item": [
+				{
+					"name": "Get Notification Settings",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/users/notification-settings",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "users", "notification-settings"]
+						}
+					}
+				},
+				{
+					"name": "Save Notification Settings",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"push_enabled\": true,\n  \"tds_threshold\": 450,\n  \"line_enabled\": false,\n  \"daily_summary_time\": \"morning\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/users/notification-settings",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "users", "notification-settings"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Subscriptions",
+			"item": [
+				{
+					"name": "Get Subscription Plans",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/subscriptions/plans",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "subscriptions", "plans"]
+						}
+					}
+				},
+				{
+					"name": "Subscribe to Plan",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"plan_id\": \"pro\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/subscriptions/subscribe",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "subscriptions", "subscribe"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Node Management",
+			"item": [
+				{
+					"name": "Get My Nodes",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/nodes",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "nodes"]
+						}
+					}
+				},
+				{
+					"name": "Add Node (s002)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"sensor_id\": \"s002\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/nodes",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "nodes"]
+						}
+					}
+				},
+				{
+					"name": "Set Active Node",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/nodes/{{nodeId}}/active",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "nodes", "{{nodeId}}", "active"]
+						}
+					}
+				},
+				{
+					"name": "Remove Node",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/nodes/{{nodeId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "nodes", "{{nodeId}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin",
+			"item": [
+				{
+					"name": "Get User Dashboard (admin only)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/admin/users/u001/summary",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "admin", "users", "u001", "summary"]
+						}
+					}
+				}
+			]
+		}
+	]
+}
