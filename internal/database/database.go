@@ -64,7 +64,9 @@ func Connect(dsn string, runMigrate bool, adminPassword string) (*gorm.DB, error
 	}
 
 	seedPlans(db)     // must run before seedAdmin (FK: users.subscription_plan → subscription_plans.id)
+	seedSensors(db)   // must run before seedDemoUsers (FK: farms.active_sensor_id → sensors.id)
 	seedAiData(db)
+	seedDemoUsers(db) // must run after seedPlans + seedSensors
 	seedAdmin(db, adminPassword)
 
 	return db, nil
@@ -216,5 +218,139 @@ func seedAiData(db *gorm.DB) {
 			db.Create(&c)
 		}
 		logger.Get().Info("Crop suggestions seeded", zap.Int("count", len(crops)))
+	}
+}
+
+// seedSensors creates demo sensors if they don't exist.
+func seedSensors(db *gorm.DB) {
+	var count int64
+	db.Model(&models.Sensor{}).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	temp1, temp2, temp3, temp4, temp5 := 28.5, 30.1, 31.4, 27.8, 26.9
+	ph1, ph2, ph3, ph4, ph5 := 6.8, 6.2, 5.8, 7.0, 7.2
+
+	sensors := []models.Sensor{
+		{ID: "s001", Name: "Sensor 01 — ลำคลองใหญ่", Latitude: 14.8820000, Longitude: 100.9940000, Status: "safe", TDSValue: 350, Temperature: &temp1, PH: &ph1},
+		{ID: "s002", Name: "Sensor 02 — ท่อระบายน้ำหลัก", Latitude: 14.8760000, Longitude: 100.9910000, Status: "warning", TDSValue: 520, Temperature: &temp2, PH: &ph2},
+		{ID: "s003", Name: "Sensor 03 — คลองชลประทาน", Latitude: 14.8840000, Longitude: 100.9960000, Status: "danger", TDSValue: 720, Temperature: &temp3, PH: &ph3},
+		{ID: "s004", Name: "Sensor 04 — สระเก็บน้ำฝั่งเหนือ", Latitude: 14.8856000, Longitude: 100.9895000, Status: "safe", TDSValue: 280, Temperature: &temp4, PH: &ph4},
+		{ID: "s005", Name: "Sensor 05 — แหล่งน้ำบาดาล", Latitude: 14.8808000, Longitude: 100.9975000, Status: "safe", TDSValue: 310, Temperature: &temp5, PH: &ph5},
+	}
+
+	for _, s := range sensors {
+		db.Create(&s)
+	}
+	logger.Get().Info("Demo sensors seeded", zap.Int("count", len(sensors)))
+
+	// Seed 7 days of water history
+	seedWaterRecords(db)
+}
+
+// seedWaterRecords creates 7-day water history for demo sensors.
+func seedWaterRecords(db *gorm.DB) {
+	var count int64
+	db.Model(&models.WaterRecord{}).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	now := time.Now()
+	var records []models.WaterRecord
+
+	for _, base := range []struct {
+		sensorID string
+		baseTDS  float64
+	}{
+		{"s001", 340},
+		{"s002", 510},
+	} {
+		for n := 0; n < 7; n++ {
+			tds := base.baseTDS + float64((n%5)*25) + float64((n*7)%60)
+			ph := 6.5 + float64(n%3)*0.2
+			temp := 27.0 + float64(n%4)
+			moisture := 55.0 + float64(n%6)*3
+
+			status := "safe"
+			if tds > 600 {
+				status = "danger"
+			} else if tds > 450 {
+				status = "warning"
+			}
+
+			records = append(records, models.WaterRecord{
+				SensorID:     base.sensorID,
+				Date:         now.AddDate(0, 0, -n),
+				TDS:          tds,
+				PH:           &ph,
+				Temperature:  &temp,
+				SoilMoisture: &moisture,
+				Status:       status,
+			})
+		}
+	}
+
+	db.Create(&records)
+	logger.Get().Info("Water records seeded", zap.Int("count", len(records)))
+}
+
+// seedDemoUsers creates demo users + farm if they don't exist.
+func seedDemoUsers(db *gorm.DB) {
+	var count int64
+	db.Model(&models.User{}).Where("id IN ?", []string{"u001", "u002"}).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	// bcrypt hash of "password123"
+	passwordHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+
+	users := []models.User{
+		{
+			ID: "u001", FirstName: "สมชาย", LastName: "ใจดี",
+			Email: "somchai@example.com", Phone: "0812345678",
+			BirthDate: time.Date(1985, 6, 15, 0, 0, 0, 0, time.Local),
+			PasswordHash: passwordHash, SubscriptionPlan: "starter", Role: "user",
+		},
+		{
+			ID: "u002", FirstName: "มาลี", LastName: "เกษตรดี",
+			Email: "malee@example.com", Phone: "0898765432",
+			BirthDate: time.Date(1990, 3, 22, 0, 0, 0, 0, time.Local),
+			PasswordHash: passwordHash, SubscriptionPlan: "pro", Role: "user",
+		},
+	}
+
+	for _, u := range users {
+		db.Create(&u)
+	}
+	logger.Get().Info("Demo users seeded", zap.Int("count", len(users)))
+
+	// Seed farm for u001
+	var farmCount int64
+	db.Model(&models.Farm{}).Where("id = ?", "f001").Count(&farmCount)
+	if farmCount == 0 {
+		lat, lng := 14.88, 100.99
+		yieldPerRai := 0.8
+		avgPrice := 9.5
+		soilPh := 6.2
+		activeSensor := "s001"
+
+		farm := models.Farm{
+			ID: "f001", UserID: "u001", Name: "แปลงนาหัวทุ่ง",
+			AreaSizeRai: 12.5, CropType: "rice",
+			YieldTonPerRai:       &yieldPerRai,
+			AvgPriceBahtPerKg:    &avgPrice,
+			DistributionChannels: `["พ่อค้าคนกลาง","สหกรณ์"]`,
+			SoilPh:               &soilPh,
+			SoilProblems:         `["ดินเปรี้ยว"]`,
+			WaterSource:          "น้ำชลประทาน",
+			Latitude:             &lat,
+			Longitude:            &lng,
+			ActiveSensorID:       &activeSensor,
+		}
+		db.Create(&farm)
+		logger.Get().Info("Demo farm seeded", zap.String("id", "f001"))
 	}
 }
