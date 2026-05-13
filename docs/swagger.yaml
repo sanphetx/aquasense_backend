@@ -1,4 +1,1316 @@
+basePath: /api/v1
+definitions:
+  models.APIResponse:
+    properties:
+      data: {}
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  models.AiRecommendationJSON:
+    properties:
+      body:
+        type: string
+      confidence_score:
+        type: number
+      created_at:
+        description: ISO 8601
+        type: string
+      id:
+        type: string
+      reason_chips:
+        items:
+          $ref: '#/definitions/models.ReasonChip'
+        type: array
+      title:
+        type: string
+      type:
+        description: tds_alert | tds_danger | crop_suggestion | fertilizer
+        type: string
+    type: object
+  models.AuthResponse:
+    properties:
+      is_first_login:
+        type: boolean
+      token:
+        type: string
+      user:
+        $ref: '#/definitions/models.UserJSON'
+    type: object
+  models.CreateFarmRequest:
+    properties:
+      area_size_rai:
+        type: number
+      avg_price_baht_per_kg:
+        type: number
+      crop_type:
+        type: string
+      distribution_channels:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      soil_ph:
+        type: number
+      soil_problems:
+        items:
+          type: string
+        type: array
+      water_source:
+        type: string
+      yield_ton_per_rai:
+        type: number
+    required:
+    - area_size_rai
+    - crop_type
+    - name
+    - water_source
+    type: object
+  models.CropSuggestionJSON:
+    properties:
+      estimated_price_per_kg:
+        type: number
+      icon:
+        type: string
+      name:
+        type: string
+      name_th:
+        type: string
+      reason:
+        type: string
+    type: object
+  models.DashboardSummaryJSON:
+    properties:
+      active_sensor:
+        $ref: '#/definitions/models.SensorJSON'
+      crop_suggestions:
+        items:
+          $ref: '#/definitions/models.CropSuggestionJSON'
+        type: array
+      farm_id:
+        description: for _LocationCard
+        type: string
+      farm_name:
+        description: for _LocationCard
+        type: string
+      recommendations:
+        items:
+          $ref: '#/definitions/models.AiRecommendationJSON'
+        type: array
+      trend_history:
+        items:
+          $ref: '#/definitions/models.WaterRecordJSON'
+        type: array
+    type: object
+  models.ErrorResponse:
+    properties:
+      error:
+        type: string
+      success:
+        type: boolean
+    type: object
+  models.FarmJSON:
+    properties:
+      active_sensor_id:
+        description: 'FK → sensors: sensor ที่ Dashboard ใช้งานอยู่'
+        type: string
+      area_size_rai:
+        type: number
+      avg_price_baht_per_kg:
+        type: number
+      created_at:
+        type: string
+      crop_type:
+        type: string
+      distribution_channels:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      latitude:
+        type: number
+      longitude:
+        type: number
+      name:
+        type: string
+      soil_ph:
+        type: number
+      soil_problems:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      user_id:
+        description: 'FK → users: ระบุว่า farm นี้เป็นของ user ไหน'
+        type: string
+      water_source:
+        type: string
+      yield_ton_per_rai:
+        type: number
+    type: object
+  models.ForgotPasswordRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  models.LinkSensorRequest:
+    properties:
+      sensor_id:
+        type: string
+    required:
+    - sensor_id
+    type: object
+  models.LoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        minLength: 6
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  models.NodeJSON:
+    properties:
+      distance_km:
+        type: number
+      id:
+        type: string
+      is_active:
+        type: boolean
+      last_updated:
+        type: string
+      sensor_id:
+        type: string
+      sensor_name:
+        type: string
+      status:
+        type: string
+      tds_value:
+        type: number
+    type: object
+  models.NotificationSettingsJSON:
+    properties:
+      daily_summary_time:
+        type: string
+      line_enabled:
+        type: boolean
+      push_enabled:
+        type: boolean
+      tds_threshold:
+        type: number
+    type: object
+  models.ReasonChip:
+    properties:
+      category:
+        description: tds | trend | weather | market
+        type: string
+      label:
+        type: string
+    type: object
+  models.RegisterRequest:
+    properties:
+      birth_date:
+        type: string
+      display_name:
+        description: 'optional: "สมชาย ใจดี" → split into first/last'
+        type: string
+      email:
+        type: string
+      first_name:
+        description: optional if display_name provided
+        type: string
+      last_name:
+        description: optional if display_name provided
+        type: string
+      password:
+        minLength: 6
+        type: string
+      phone:
+        type: string
+    required:
+    - birth_date
+    - email
+    - password
+    type: object
+  models.SensorJSON:
+    properties:
+      distance_km:
+        type: number
+      id:
+        type: string
+      last_updated:
+        description: ISO 8601
+        type: string
+      latitude:
+        type: number
+      longitude:
+        type: number
+      name:
+        type: string
+      ph:
+        type: number
+      status:
+        type: string
+      tds_value:
+        type: number
+      temperature:
+        type: number
+    type: object
+  models.SocialLoginRequest:
+    properties:
+      id_token:
+        description: JWT from provider
+        type: string
+      provider:
+        description: google | apple
+        type: string
+    required:
+    - id_token
+    - provider
+    type: object
+  models.SubscribeRequest:
+    properties:
+      plan_id:
+        type: string
+    required:
+    - plan_id
+    type: object
+  models.SubscriptionPlanJSON:
+    properties:
+      features:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      name:
+        type: string
+      period:
+        type: string
+      price:
+        type: string
+      recommended:
+        type: boolean
+    type: object
+  models.UpdateLocationRequest:
+    properties:
+      latitude:
+        maximum: 90
+        minimum: -90
+        type: number
+      longitude:
+        maximum: 180
+        minimum: -180
+        type: number
+    type: object
+  models.UpdateProfileRequest:
+    properties:
+      first_name:
+        type: string
+      last_name:
+        type: string
+      phone:
+        type: string
+    required:
+    - first_name
+    - last_name
+    type: object
+  models.UserJSON:
+    properties:
+      avatar_url:
+        type: string
+      birth_date:
+        description: ISO 8601
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      id:
+        type: string
+      last_name:
+        type: string
+      phone:
+        type: string
+      role:
+        type: string
+      subscription_plan:
+        type: string
+    type: object
+  models.WaterRecordJSON:
+    properties:
+      date:
+        description: ISO 8601
+        type: string
+      ph:
+        type: number
+      soil_moisture:
+        type: number
+      status:
+        type: string
+      tds:
+        type: number
+      temperature:
+        type: number
+    type: object
+host: localhost:8080
 info:
-  contact: {}
-paths: {}
+  contact:
+    email: support@aquasense.local
+    name: API Support
+  description: This is the API server for AquaSense TDS application.
+  termsOfService: http://swagger.io/terms/
+  title: AquaSense Backend API
+  version: "1.0"
+paths:
+  /admin/users/{user_id}/summary:
+    get:
+      parameters:
+      - description: Target User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.DashboardSummaryJSON'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get dashboard summary for a specific user (admin only)
+      tags:
+      - Admin
+  /ai/advisory-history:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.AiRecommendationJSON'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get AI advisory history
+      tags:
+      - AI
+  /ai/crop-suggestions:
+    get:
+      parameters:
+      - description: Current TDS value (ppm)
+        in: query
+        name: tds
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.CropSuggestionJSON'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get crop suggestions based on TDS value
+      tags:
+      - AI
+  /ai/recommendations:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.AiRecommendationJSON'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get all AI recommendations
+      tags:
+      - AI
+  /ai/recommendations/{id}:
+    get:
+      parameters:
+      - description: Recommendation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.AiRecommendationJSON'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get single AI recommendation detail
+      tags:
+      - AI
+  /analytics/soil-moisture:
+    get:
+      parameters:
+      - description: Sensor ID (defaults to farm's active sensor)
+        in: query
+        name: sensor_id
+        type: string
+      - default: 7d
+        description: Period
+        enum:
+        - 7d
+        - 30d
+        in: query
+        name: period
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.WaterRecordJSON'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get soil moisture history for analytics
+      tags:
+      - Dashboard
+  /auth/forgot-password:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Email address
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.ForgotPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Request password reset email
+      tags:
+      - Auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.AuthResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Login with email and password
+      tags:
+      - Auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Registration data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.AuthResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Register a new user
+      tags:
+      - Auth
+  /auth/social:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Provider and id_token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.SocialLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.AuthResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Social login with Google or Apple
+      tags:
+      - Auth
+  /dashboard/summary:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.DashboardSummaryJSON'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get full dashboard summary
+      tags:
+      - Dashboard
+  /farms:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.FarmJSON'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user's farm
+      tags:
+      - Farm
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Farm data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.CreateFarmRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.FarmJSON'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create or update user's farm (upsert)
+      tags:
+      - Farm
+  /farms/{id}/location:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Farm ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: GPS coordinates
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateLocationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.FarmJSON'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update farm GPS location
+      tags:
+      - Farm
+  /farms/{id}/sensor:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Farm ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Sensor ID
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.LinkSensorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Link a sensor to user's farm
+      tags:
+      - Farm
+  /nodes:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.NodeJSON'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get all sensor nodes for current user
+      tags:
+      - Node
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Sensor ID to add
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.LinkSensorRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.NodeJSON'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add a new sensor node (max 5 per user)
+      tags:
+      - Node
+  /nodes/{id}:
+    delete:
+      parameters:
+      - description: Node ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove a sensor node
+      tags:
+      - Node
+  /nodes/{id}/active:
+    put:
+      parameters:
+      - description: Node ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Set a node as active (used in dashboard)
+      tags:
+      - Node
+  /sensors/{id}/history:
+    get:
+      parameters:
+      - description: Sensor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: 7d
+        description: Period
+        enum:
+        - 7d
+        - 30d
+        in: query
+        name: period
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.WaterRecordJSON'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get sensor water quality history
+      tags:
+      - Sensor
+  /sensors/{id}/latest:
+    get:
+      parameters:
+      - description: Sensor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.SensorJSON'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get latest sensor reading
+      tags:
+      - Sensor
+  /sensors/{id}/status:
+    get:
+      parameters:
+      - description: Sensor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get sensor status (safe/warning/danger)
+      tags:
+      - Sensor
+  /sensors/nearby:
+    get:
+      parameters:
+      - description: Latitude
+        in: query
+        name: lat
+        required: true
+        type: number
+      - description: Longitude
+        in: query
+        name: lng
+        required: true
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.SensorJSON'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get nearby sensors sorted by distance
+      tags:
+      - Sensor
+  /subscriptions/plans:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/models.SubscriptionPlanJSON'
+                  type: array
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get all subscription plans
+      tags:
+      - Account
+  /subscriptions/subscribe:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Plan ID
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.SubscribeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Subscribe to a plan
+      tags:
+      - Account
+  /users/notification-settings:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.NotificationSettingsJSON'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get notification settings
+      tags:
+      - Account
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Notification settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.NotificationSettingsJSON'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.NotificationSettingsJSON'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Save notification settings
+      tags:
+      - Account
+  /users/profile:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.UserJSON'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current user profile
+      tags:
+      - Account
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Profile data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateProfileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/models.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.UserJSON'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update current user profile
+      tags:
+      - Account
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"

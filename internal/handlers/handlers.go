@@ -56,7 +56,15 @@ func NewAuthHandler(svc *service.AuthService) *AuthHandler {
 	return &AuthHandler{svc: svc}
 }
 
-// Login handles POST /auth/login
+// @Summary     Login with email and password
+// @Tags        Auth
+// @Accept      json
+// @Produce     json
+// @Param       body body models.LoginRequest true "Login credentials"
+// @Success     200 {object} models.APIResponse{data=models.AuthResponse}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -72,7 +80,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	ok(c, resp)
 }
 
-// Register handles POST /auth/register
+// @Summary     Register a new user
+// @Tags        Auth
+// @Accept      json
+// @Produce     json
+// @Param       body body models.RegisterRequest true "Registration data"
+// @Success     201 {object} models.APIResponse{data=models.AuthResponse}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     409 {object} models.ErrorResponse
+// @Router      /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -88,7 +104,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	created(c, resp)
 }
 
-// SocialLogin handles POST /auth/social
+// @Summary     Social login with Google or Apple
+// @Tags        Auth
+// @Accept      json
+// @Produce     json
+// @Param       body body models.SocialLoginRequest true "Provider and id_token"
+// @Success     200 {object} models.APIResponse{data=models.AuthResponse}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /auth/social [post]
 func (h *AuthHandler) SocialLogin(c *gin.Context) {
 	var req models.SocialLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -105,7 +129,14 @@ func (h *AuthHandler) SocialLogin(c *gin.Context) {
 	ok(c, resp)
 }
 
-// ForgotPassword handles POST /auth/forgot-password
+// @Summary     Request password reset email
+// @Tags        Auth
+// @Accept      json
+// @Produce     json
+// @Param       body body models.ForgotPasswordRequest true "Email address"
+// @Success     200 {object} models.APIResponse
+// @Failure     400 {object} models.ErrorResponse
+// @Router      /auth/forgot-password [post]
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req models.ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -131,7 +162,16 @@ func NewFarmHandler(repo *repository.FarmRepository) *FarmHandler {
 	return &FarmHandler{repo: repo}
 }
 
-// CreateFarm handles POST /farms
+// @Summary     Create or update user's farm (upsert)
+// @Tags        Farm
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body body models.CreateFarmRequest true "Farm data"
+// @Success     201 {object} models.APIResponse{data=models.FarmJSON}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /farms [post]
 func (h *FarmHandler) CreateFarm(c *gin.Context) {
 	userID := c.GetString("userID")
 
@@ -149,7 +189,14 @@ func (h *FarmHandler) CreateFarm(c *gin.Context) {
 	created(c, farm)
 }
 
-// GetFarm handles GET /farms (returns the user's primary farm)
+// @Summary     Get user's farm
+// @Tags        Farm
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200 {object} models.APIResponse{data=models.FarmJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /farms [get]
 func (h *FarmHandler) GetFarm(c *gin.Context) {
 	userID := c.GetString("userID")
 
@@ -165,7 +212,18 @@ func (h *FarmHandler) GetFarm(c *gin.Context) {
 	ok(c, farm)
 }
 
-// UpdateLocation handles PUT /farms/:id/location
+// @Summary     Update farm GPS location
+// @Tags        Farm
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id path string true "Farm ID"
+// @Param       body body models.UpdateLocationRequest true "GPS coordinates"
+// @Success     200 {object} models.APIResponse{data=models.FarmJSON}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /farms/{id}/location [put]
 func (h *FarmHandler) UpdateLocation(c *gin.Context) {
 	userID := c.GetString("userID") // [Security #1] must verify ownership
 	farmID := c.Param("id")
@@ -193,7 +251,18 @@ func (h *FarmHandler) UpdateLocation(c *gin.Context) {
 	ok(c, farm)
 }
 
-// LinkSensor handles POST /farms/:id/sensor
+// @Summary     Link a sensor to user's farm
+// @Tags        Farm
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id path string true "Farm ID"
+// @Param       body body models.LinkSensorRequest true "Sensor ID"
+// @Success     200 {object} models.APIResponse
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /farms/{id}/sensor [post]
 func (h *FarmHandler) LinkSensor(c *gin.Context) {
 	userID := c.GetString("userID") // [Security #1] must verify ownership
 	farmID := c.Param("id")
@@ -235,7 +304,16 @@ func NewSensorHandler(
 	return &SensorHandler{sensorRepo: sensorRepo, farmRepo: farmRepo, aiSvc: aiSvc}
 }
 
-// GetNearbySensors handles GET /sensors/nearby?lat=&lng=
+// @Summary     Get nearby sensors sorted by distance
+// @Tags        Sensor
+// @Produce     json
+// @Security    BearerAuth
+// @Param       lat query number true "Latitude"
+// @Param       lng query number true "Longitude"
+// @Success     200 {object} models.APIResponse{data=[]models.SensorJSON}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /sensors/nearby [get]
 func (h *SensorHandler) GetNearbySensors(c *gin.Context) {
 	type LatLng struct {
 		Lat float64 `form:"lat" binding:"required"`
@@ -255,7 +333,15 @@ func (h *SensorHandler) GetNearbySensors(c *gin.Context) {
 	ok(c, sensors)
 }
 
-// GetSensorLatest handles GET /sensors/:id/latest
+// @Summary     Get latest sensor reading
+// @Tags        Sensor
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id path string true "Sensor ID"
+// @Success     200 {object} models.APIResponse{data=models.SensorJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /sensors/{id}/latest [get]
 func (h *SensorHandler) GetSensorLatest(c *gin.Context) {
 	sensorID := c.Param("id")
 
@@ -271,7 +357,15 @@ func (h *SensorHandler) GetSensorLatest(c *gin.Context) {
 	ok(c, sensor)
 }
 
-// GetSensorStatus handles GET /sensors/:id/status
+// @Summary     Get sensor status (safe/warning/danger)
+// @Tags        Sensor
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id path string true "Sensor ID"
+// @Success     200 {object} models.APIResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /sensors/{id}/status [get]
 func (h *SensorHandler) GetSensorStatus(c *gin.Context) {
 	sensorID := c.Param("id")
 
@@ -287,7 +381,15 @@ func (h *SensorHandler) GetSensorStatus(c *gin.Context) {
 	ok(c, gin.H{"status": sensor.Status, "tds_value": sensor.TDSValue})
 }
 
-// GetSensorHistory handles GET /sensors/:id/history?period=7d|30d
+// @Summary     Get sensor water quality history
+// @Tags        Sensor
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id path string true "Sensor ID"
+// @Param       period query string false "Period" Enums(7d,30d) default(7d)
+// @Success     200 {object} models.APIResponse{data=[]models.WaterRecordJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /sensors/{id}/history [get]
 func (h *SensorHandler) GetSensorHistory(c *gin.Context) {
 	sensorID := c.Param("id")
 	period := c.DefaultQuery("period", "7d")
@@ -367,19 +469,44 @@ func (h *SensorHandler) buildDashboardSummary(c *gin.Context, userID string) {
 	ok(c, summary)
 }
 
-// GetDashboardSummary handles GET /dashboard/summary
+// @Summary     Get full dashboard summary
+// @Tags        Dashboard
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200 {object} models.APIResponse{data=models.DashboardSummaryJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /dashboard/summary [get]
 func (h *SensorHandler) GetDashboardSummary(c *gin.Context) {
 	userID := c.GetString("userID")
 	h.buildDashboardSummary(c, userID)
 }
 
-// GetUserDashboardSummary handles GET /admin/users/:user_id/summary (Admin only)
+// @Summary     Get dashboard summary for a specific user (admin only)
+// @Tags        Admin
+// @Produce     json
+// @Security    BearerAuth
+// @Param       user_id path string true "Target User ID"
+// @Success     200 {object} models.APIResponse{data=models.DashboardSummaryJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     403 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /admin/users/{user_id}/summary [get]
 func (h *SensorHandler) GetUserDashboardSummary(c *gin.Context) {
 	targetUserID := c.Param("user_id")
 	h.buildDashboardSummary(c, targetUserID)
 }
 
-// GetSoilMoistureHistory handles GET /analytics/soil-moisture?sensor_id=&period=
+// @Summary     Get soil moisture history for analytics
+// @Tags        Dashboard
+// @Produce     json
+// @Security    BearerAuth
+// @Param       sensor_id query string false "Sensor ID (defaults to farm's active sensor)"
+// @Param       period query string false "Period" Enums(7d,30d) default(7d)
+// @Success     200 {object} models.APIResponse{data=[]models.WaterRecordJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /analytics/soil-moisture [get]
 // Resolves sensor from user's active farm — returns 404 if no sensor linked.
 func (h *SensorHandler) GetSoilMoistureHistory(c *gin.Context) {
 	userID := c.GetString("userID")
@@ -425,7 +552,14 @@ func NewAccountHandler(
 	return &AccountHandler{authRepo: authRepo, notifRepo: notifRepo, subSvc: subSvc}
 }
 
-// GetProfile handles GET /users/profile
+// @Summary     Get current user profile
+// @Tags        Account
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200 {object} models.APIResponse{data=models.UserJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /users/profile [get]
 func (h *AccountHandler) GetProfile(c *gin.Context) {
 	userID := c.GetString("userID")
 
@@ -437,7 +571,16 @@ func (h *AccountHandler) GetProfile(c *gin.Context) {
 	ok(c, user.ToJSON())
 }
 
-// UpdateProfile handles PUT /users/profile
+// @Summary     Update current user profile
+// @Tags        Account
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body body models.UpdateProfileRequest true "Profile data"
+// @Success     200 {object} models.APIResponse{data=models.UserJSON}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /users/profile [put]
 func (h *AccountHandler) UpdateProfile(c *gin.Context) {
 	userID := c.GetString("userID")
 
@@ -460,7 +603,13 @@ func (h *AccountHandler) UpdateProfile(c *gin.Context) {
 	ok(c, user.ToJSON())
 }
 
-// GetNotificationSettings handles GET /users/notification-settings
+// @Summary     Get notification settings
+// @Tags        Account
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200 {object} models.APIResponse{data=models.NotificationSettingsJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /users/notification-settings [get]
 func (h *AccountHandler) GetNotificationSettings(c *gin.Context) {
 	userID := c.GetString("userID")
 
@@ -472,7 +621,16 @@ func (h *AccountHandler) GetNotificationSettings(c *gin.Context) {
 	ok(c, settings)
 }
 
-// SaveNotificationSettings handles PUT /users/notification-settings
+// @Summary     Save notification settings
+// @Tags        Account
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body body models.NotificationSettingsJSON true "Notification settings"
+// @Success     200 {object} models.APIResponse{data=models.NotificationSettingsJSON}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /users/notification-settings [put]
 func (h *AccountHandler) SaveNotificationSettings(c *gin.Context) {
 	userID := c.GetString("userID")
 
@@ -489,12 +647,28 @@ func (h *AccountHandler) SaveNotificationSettings(c *gin.Context) {
 	ok(c, req)
 }
 
-// GetSubscriptionPlans handles GET /subscriptions/plans
+// @Summary     Get all subscription plans
+// @Tags        Account
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200 {object} models.APIResponse{data=[]models.SubscriptionPlanJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /subscriptions/plans [get]
 func (h *AccountHandler) GetSubscriptionPlans(c *gin.Context) {
 	ok(c, h.subSvc.GetPlans())
 }
 
-// Subscribe handles POST /subscriptions/subscribe
+// @Summary     Subscribe to a plan
+// @Tags        Account
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body body models.SubscribeRequest true "Plan ID"
+// @Success     200 {object} models.APIResponse
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /subscriptions/subscribe [post]
 func (h *AccountHandler) Subscribe(c *gin.Context) {
 	userID := c.GetString("userID")
 
@@ -527,12 +701,26 @@ func NewAiHandler(svc *service.AiService) *AiHandler {
 	return &AiHandler{svc: svc}
 }
 
-// GetRecommendations handles GET /ai/recommendations
+// @Summary     Get all AI recommendations
+// @Tags        AI
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200 {object} models.APIResponse{data=[]models.AiRecommendationJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /ai/recommendations [get]
 func (h *AiHandler) GetRecommendations(c *gin.Context) {
 	ok(c, h.svc.GetRecommendations())
 }
 
-// GetRecommendationDetail handles GET /ai/recommendations/:id
+// @Summary     Get single AI recommendation detail
+// @Tags        AI
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id path string true "Recommendation ID"
+// @Success     200 {object} models.APIResponse{data=models.AiRecommendationJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /ai/recommendations/{id} [get]
 func (h *AiHandler) GetRecommendationDetail(c *gin.Context) {
 	id := c.Param("id")
 	rec := h.svc.GetRecommendationByID(id)
@@ -543,12 +731,25 @@ func (h *AiHandler) GetRecommendationDetail(c *gin.Context) {
 	ok(c, rec)
 }
 
-// GetAdvisoryHistory handles GET /ai/advisory-history
+// @Summary     Get AI advisory history
+// @Tags        AI
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200 {object} models.APIResponse{data=[]models.AiRecommendationJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /ai/advisory-history [get]
 func (h *AiHandler) GetAdvisoryHistory(c *gin.Context) {
 	ok(c, h.svc.GetAdvisoryHistory())
 }
 
-// GetCropSuggestions handles GET /ai/crop-suggestions?tds=
+// @Summary     Get crop suggestions based on TDS value
+// @Tags        AI
+// @Produce     json
+// @Security    BearerAuth
+// @Param       tds query number false "Current TDS value (ppm)"
+// @Success     200 {object} models.APIResponse{data=[]models.CropSuggestionJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /ai/crop-suggestions [get]
 func (h *AiHandler) GetCropSuggestions(c *gin.Context) {
 	type Query struct {
 		TDS float64 `form:"tds"`
@@ -570,7 +771,13 @@ func NewNodeHandler(repo *repository.NodeRepository) *NodeHandler {
 	return &NodeHandler{repo: repo}
 }
 
-// GetNodes handles GET /nodes
+// @Summary     Get all sensor nodes for current user
+// @Tags        Node
+// @Produce     json
+// @Security    BearerAuth
+// @Success     200 {object} models.APIResponse{data=[]models.NodeJSON}
+// @Failure     401 {object} models.ErrorResponse
+// @Router      /nodes [get]
 func (h *NodeHandler) GetNodes(c *gin.Context) {
 	userID := c.GetString("userID")
 	nodes, err := h.repo.GetUserNodes(userID)
@@ -584,7 +791,18 @@ func (h *NodeHandler) GetNodes(c *gin.Context) {
 	ok(c, nodes)
 }
 
-// AddNode handles POST /nodes
+// @Summary     Add a new sensor node (max 5 per user)
+// @Tags        Node
+// @Accept      json
+// @Produce     json
+// @Security    BearerAuth
+// @Param       body body models.LinkSensorRequest true "Sensor ID to add"
+// @Success     201 {object} models.APIResponse{data=models.NodeJSON}
+// @Failure     400 {object} models.ErrorResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Failure     409 {object} models.ErrorResponse
+// @Router      /nodes [post]
 // [Fix K] Use errors.Is to distinguish user errors from server errors
 func (h *NodeHandler) AddNode(c *gin.Context) {
 	userID := c.GetString("userID")
@@ -612,7 +830,15 @@ func (h *NodeHandler) AddNode(c *gin.Context) {
 	created(c, node)
 }
 
-// SetActiveNode handles PUT /nodes/:id/active
+// @Summary     Set a node as active (used in dashboard)
+// @Tags        Node
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id path string true "Node ID"
+// @Success     200 {object} models.APIResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /nodes/{id}/active [put]
 func (h *NodeHandler) SetActiveNode(c *gin.Context) {
 	userID := c.GetString("userID")
 	nodeID := c.Param("id")
@@ -628,7 +854,15 @@ func (h *NodeHandler) SetActiveNode(c *gin.Context) {
 	ok(c, gin.H{"message": "ตั้งเป็น Active Node สำเร็จ"})
 }
 
-// RemoveNode handles DELETE /nodes/:id
+// @Summary     Remove a sensor node
+// @Tags        Node
+// @Produce     json
+// @Security    BearerAuth
+// @Param       id path string true "Node ID"
+// @Success     200 {object} models.APIResponse
+// @Failure     401 {object} models.ErrorResponse
+// @Failure     404 {object} models.ErrorResponse
+// @Router      /nodes/{id} [delete]
 func (h *NodeHandler) RemoveNode(c *gin.Context) {
 	userID := c.GetString("userID")
 	nodeID := c.Param("id")

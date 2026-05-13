@@ -51,7 +51,7 @@ func Load() *Config {
 		ServerPort:           getEnv("SERVER_PORT", "8080"),
 		GinMode:              ginMode,
 		DBHost:               getEnv("DB_HOST", "localhost"),
-		DBPort:               getEnv("DB_PORT", "3306"),
+		DBPort:               getEnv("DB_PORT", "3307"),
 		DBName:               getEnv("DB_NAME", "aquasense"),
 		DBUser:               getEnv("DB_USER", "root"),
 		DBPassword:           getEnv("DB_PASSWORD", ""),

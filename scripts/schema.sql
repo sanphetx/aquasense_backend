@@ -2,6 +2,9 @@
 -- Run this script to create the database and all tables.
 -- Compatible with MySQL 8.0+
 
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS aquasense
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
